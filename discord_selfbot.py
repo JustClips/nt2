@@ -2,27 +2,25 @@ import os
 import discord
 import re
 import requests
-import asyncio
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
 WEBHOOK_URL = "https://discord.com/api/webhooks/1402027109890658455/cvXdXAR1O0zlUsuEz8COOiSfEzIX3FyepSj5LXNFrKRFAZIYQRxGLk2T1JrhjZ2kEzRe"
 BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 
-client = discord.Client()
+intents = discord.Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
 
 def parse_info(msg):
-    # Parse all possible relevant fields
     name = re.search(r'🏷️ Name\n([^\n]+)', msg)
     money = re.search(r'💰 Money per sec\n([^\n]+)', msg)
     players = re.search(r'👥 Players\n([^\n]+)', msg)
     jobid_mobile = re.search(r'Job ID \(Mobile\)\n([A-Za-z0-9\-+/=]+)', msg)
     jobid_pc = re.search(r'Job ID \(PC\)\n([A-Za-z0-9\-+/=]+)', msg)
     script = re.search(r'Join Script \(PC\)\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg)
-    # Also extract placeId and instanceId for join link
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
 
-    # Parse player info into integers
     players_str = players.group(1) if players else None
     current_players = None
     max_players = None
@@ -61,7 +59,6 @@ def get_message_full_content(message):
     return "\n".join(parts) if parts else "(no content)"
 
 def build_embed(info):
-    # Build an embed payload for Discord webhook
     fields = []
     if info["name"]:
         fields.append({
@@ -108,15 +105,15 @@ def build_embed(info):
         })
     embed = {
         "title": "Eps1lon Hub Notifier",
-        "color": 0x5865F2,  # Discord blurple
+        "color": 0x5865F2,
         "fields": fields
     }
     return {"embeds": [embed]}
 
 def send_to_backend(info):
     """
-    Send brainrot info to backend immediately if server has less than 7 players.
-    Do NOT send if 7/8 or 8/8.
+    Instantly send brainrot info to backend if server has less than 7 players (max allowed: 6/8).
+    Skips if 7/8 or 8/8.
     """
     if not info["name"] or not info["instanceid"]:
         print("Skipping backend send - missing name or instanceid")
@@ -152,19 +149,19 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    # 0 delay in reading channel id and sending to backend
     if message.channel.id not in CHANNEL_IDS:
         return
 
     full_content = get_message_full_content(message)
     info = parse_info(full_content)
-    # Only send as embed if we have at least a name, money, and players
     if info["name"] and info["money"] and info["players"]:
         embed_payload = build_embed(info)
         try:
             requests.post(WEBHOOK_URL, json=embed_payload)
         except Exception as e:
             print(f"Failed to send embed to webhook: {e}")
-        # Instantly send to backend (only if players < 7)
+        # Instantly send to backend (if players < 7)
         send_to_backend(info)
     else:
         try:
