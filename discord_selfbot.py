@@ -114,7 +114,10 @@ def build_embed(info):
     return {"embeds": [embed]}
 
 def send_to_backend(info):
-    """Send brainrot info to backend immediately if server is max-1 players."""
+    """
+    Send brainrot info to backend immediately if server has less than 7 players.
+    Do NOT send if 7/8 or 8/8.
+    """
     if not info["name"] or not info["instanceid"]:
         print("Skipping backend send - missing name or instanceid")
         return
@@ -122,8 +125,8 @@ def send_to_backend(info):
     if info.get("current_players") is None or info.get("max_players") is None:
         print("Skipping backend send - missing player info")
         return
-    if info["current_players"] != info["max_players"] - 1:
-        print(f"Skipping {info['name']} - player count {info['current_players']}/{info['max_players']} is not max-1")
+    if info["current_players"] >= 7:
+        print(f"Skipping {info['name']} - player count {info['current_players']}/{info['max_players']} is 7 or more")
         return
 
     payload = {
@@ -161,7 +164,7 @@ async def on_message(message):
             requests.post(WEBHOOK_URL, json=embed_payload)
         except Exception as e:
             print(f"Failed to send embed to webhook: {e}")
-        # Instantly send to backend (only almost full servers)
+        # Instantly send to backend (only if players < 7)
         send_to_backend(info)
     else:
         try:
