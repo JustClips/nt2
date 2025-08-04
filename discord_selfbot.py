@@ -32,4 +32,4 @@ async def on_message(message):
             json.dump({"jobid": jobid}, f)
         print(f"Found server with ${money}M/s, Job ID: {jobid}")
 
-client.run(TOKEN, bot=False)
+client.run(TOKEN)
