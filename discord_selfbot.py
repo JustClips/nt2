@@ -3,8 +3,6 @@ import discord
 import re
 import requests
 import asyncio
-from collections import defaultdict
-import time
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
@@ -12,12 +10,6 @@ WEBHOOK_URL = "https://discord.com/api/webhooks/1402027109890658455/cvXdXAR1O0zl
 BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 
 client = discord.Client()
-
-# Batching system
-pending_brainrots = {}  # {instanceid: {name, instanceid, timestamp}}
-last_backend_send = defaultdict(float)  # {instanceid: timestamp}
-BATCH_DELAY = 30  # Wait 30 seconds before sending to backend
-MIN_SEND_INTERVAL = 60  # Don't send same server more than once per minute
 
 def parse_info(msg):
     # Parse all possible relevant fields
@@ -29,10 +21,23 @@ def parse_info(msg):
     script = re.search(r'Join Script \(PC\)\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg)
     # Also extract placeId and instanceId for join link
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
+
+    # Parse player info into integers
+    players_str = players.group(1) if players else None
+    current_players = None
+    max_players = None
+    if players_str:
+        m = re.match(r'(\d+)\s*/\s*(\d+)', players_str.strip())
+        if m:
+            current_players = int(m.group(1))
+            max_players = int(m.group(2))
+
     return {
         "name": name.group(1) if name else None,
         "money": money.group(1) if money else None,
-        "players": players.group(1) if players else None,
+        "players": players_str,
+        "current_players": current_players,
+        "max_players": max_players,
         "jobid_mobile": jobid_mobile.group(1) if jobid_mobile else None,
         "jobid_pc": jobid_pc.group(1) if jobid_pc else None,
         "script": script.group(1) if script else None,
@@ -76,8 +81,6 @@ def build_embed(info):
             "value": f"**{info['players']}**",
             "inline": True
         })
-    # Join link as a clickable field if placeid and instanceid are available
-    join_link = ""
     if info["placeid"] and info["instanceid"]:
         join_url = f"https://chillihub1.github.io/chillihub-joiner/?placeId={info['placeid']}&gameInstanceId={info['instanceid']}"
         fields.append({
@@ -110,77 +113,39 @@ def build_embed(info):
     }
     return {"embeds": [embed]}
 
-def queue_for_backend(info):
-    """Queue brainrot for delayed backend sending"""
+def send_to_backend(info):
+    """Send brainrot info to backend immediately if server is max-1 players."""
     if not info["name"] or not info["instanceid"]:
-        print("Skipping backend queue - missing name or instanceid")
+        print("Skipping backend send - missing name or instanceid")
         return
-    
-    instanceid = info["instanceid"]
-    current_time = time.time()
-    
-    # Check if we recently sent this server
-    if current_time - last_backend_send[instanceid] < MIN_SEND_INTERVAL:
-        print(f"⏭️ Skipping {info['name']} - server {instanceid[:8]}... sent recently")
-        return
-    
-    # Add to pending queue
-    pending_brainrots[instanceid] = {
-        "name": info["name"],
-        "instanceid": instanceid,
-        "timestamp": current_time
-    }
-    print(f"⏰ Queued for backend: {info['name']} -> {instanceid[:8]}... (will send in {BATCH_DELAY}s)")
 
-async def send_pending_brainrots():
-    """Background task to send queued brainrots to backend"""
-    while True:
-        current_time = time.time()
-        to_send = []
-        
-        # Find brainrots ready to send
-        for instanceid, data in list(pending_brainrots.items()):
-            if current_time - data["timestamp"] >= BATCH_DELAY:
-                to_send.append(data)
-                del pending_brainrots[instanceid]
-        
-        # Send them
-        for data in to_send:
-            payload = {
-                "name": data["name"],
-                "serverId": data["instanceid"],
-                "jobId": data["instanceid"]
-            }
-            
-            try:
-                response = requests.post(BACKEND_URL, json=payload, timeout=10)
-                if response.status_code == 200:
-                    print(f"✅ Sent to backend: {data['name']} -> {data['instanceid'][:8]}...")
-                    last_backend_send[data["instanceid"]] = current_time
-                elif response.status_code == 429:
-                    print(f"⚠️ Rate limited - requeueing {data['name']}")
-                    # Requeue with longer delay
-                    pending_brainrots[data["instanceid"]] = {
-                        **data,
-                        "timestamp": current_time + 60  # Try again in 1 minute
-                    }
-                else:
-                    print(f"❌ Backend error {response.status_code}: {response.text}")
-            except Exception as e:
-                print(f"❌ Failed to send to backend: {e}")
-                # Requeue for retry
-                pending_brainrots[data["instanceid"]] = {
-                    **data,
-                    "timestamp": current_time + 30  # Try again in 30 seconds
-                }
-        
-        await asyncio.sleep(10)  # Check every 10 seconds
+    if info.get("current_players") is None or info.get("max_players") is None:
+        print("Skipping backend send - missing player info")
+        return
+    if info["current_players"] != info["max_players"] - 1:
+        print(f"Skipping {info['name']} - player count {info['current_players']}/{info['max_players']} is not max-1")
+        return
+
+    payload = {
+        "name": info["name"],
+        "serverId": info["instanceid"],
+        "jobId": info["instanceid"],
+        "players": info["players"]
+    }
+    try:
+        response = requests.post(BACKEND_URL, json=payload, timeout=10)
+        if response.status_code == 200:
+            print(f"✅ Sent to backend: {info['name']} -> {info['instanceid'][:8]}... ({info['players']})")
+        elif response.status_code == 429:
+            print(f"⚠️ Rate limited for backend: {info['name']}")
+        else:
+            print(f"❌ Backend error {response.status_code}: {response.text}")
+    except Exception as e:
+        print(f"❌ Failed to send to backend: {e}")
 
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
-    # Start the background task
-    client.loop.create_task(send_pending_brainrots())
 
 @client.event
 async def on_message(message):
@@ -188,8 +153,6 @@ async def on_message(message):
         return
 
     full_content = get_message_full_content(message)
-
-    # Try to parse info and build a rich embed
     info = parse_info(full_content)
     # Only send as embed if we have at least a name, money, and players
     if info["name"] and info["money"] and info["players"]:
@@ -198,11 +161,9 @@ async def on_message(message):
             requests.post(WEBHOOK_URL, json=embed_payload)
         except Exception as e:
             print(f"Failed to send embed to webhook: {e}")
-        
-        # NEW: Queue for backend (delayed sending)
-        queue_for_backend(info)
+        # Instantly send to backend (only almost full servers)
+        send_to_backend(info)
     else:
-        # fallback: send plain text
         try:
             requests.post(WEBHOOK_URL, json={"content": full_content})
         except Exception as e:
