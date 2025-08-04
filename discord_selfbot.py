@@ -2,13 +2,22 @@ import os
 import discord
 import re
 import requests
+import asyncio
+from collections import defaultdict
+import time
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
 WEBHOOK_URL = "https://discord.com/api/webhooks/1402027109890658455/cvXdXAR1O0zlUsuEz8COOiSfEzIX3FyepSj5LXNFrKRFAZIYQRxGLk2T1JrhjZ2kEzRe"
-BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"  # ADD THIS
+BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 
 client = discord.Client()
+
+# Batching system
+pending_brainrots = {}  # {instanceid: {name, instanceid, timestamp}}
+last_backend_send = defaultdict(float)  # {instanceid: timestamp}
+BATCH_DELAY = 30  # Wait 30 seconds before sending to backend
+MIN_SEND_INTERVAL = 60  # Don't send same server more than once per minute
 
 def parse_info(msg):
     # Parse all possible relevant fields
@@ -101,31 +110,77 @@ def build_embed(info):
     }
     return {"embeds": [embed]}
 
-# NEW FUNCTION: Send to backend
-def send_to_backend(info):
-    """Send brainrot data to the backend API"""
+def queue_for_backend(info):
+    """Queue brainrot for delayed backend sending"""
     if not info["name"] or not info["instanceid"]:
-        print("Skipping backend send - missing name or instanceid")
+        print("Skipping backend queue - missing name or instanceid")
         return
     
-    payload = {
-        "name": info["name"],
-        "serverId": info["instanceid"],
-        "jobId": info["instanceid"]
-    }
+    instanceid = info["instanceid"]
+    current_time = time.time()
     
-    try:
-        response = requests.post(BACKEND_URL, json=payload, timeout=5)
-        if response.status_code == 200:
-            print(f"✅ Sent to backend: {info['name']} -> {info['instanceid']}")
-        else:
-            print(f"❌ Backend error {response.status_code}: {response.text}")
-    except Exception as e:
-        print(f"❌ Failed to send to backend: {e}")
+    # Check if we recently sent this server
+    if current_time - last_backend_send[instanceid] < MIN_SEND_INTERVAL:
+        print(f"⏭️ Skipping {info['name']} - server {instanceid[:8]}... sent recently")
+        return
+    
+    # Add to pending queue
+    pending_brainrots[instanceid] = {
+        "name": info["name"],
+        "instanceid": instanceid,
+        "timestamp": current_time
+    }
+    print(f"⏰ Queued for backend: {info['name']} -> {instanceid[:8]}... (will send in {BATCH_DELAY}s)")
+
+async def send_pending_brainrots():
+    """Background task to send queued brainrots to backend"""
+    while True:
+        current_time = time.time()
+        to_send = []
+        
+        # Find brainrots ready to send
+        for instanceid, data in list(pending_brainrots.items()):
+            if current_time - data["timestamp"] >= BATCH_DELAY:
+                to_send.append(data)
+                del pending_brainrots[instanceid]
+        
+        # Send them
+        for data in to_send:
+            payload = {
+                "name": data["name"],
+                "serverId": data["instanceid"],
+                "jobId": data["instanceid"]
+            }
+            
+            try:
+                response = requests.post(BACKEND_URL, json=payload, timeout=10)
+                if response.status_code == 200:
+                    print(f"✅ Sent to backend: {data['name']} -> {data['instanceid'][:8]}...")
+                    last_backend_send[data["instanceid"]] = current_time
+                elif response.status_code == 429:
+                    print(f"⚠️ Rate limited - requeueing {data['name']}")
+                    # Requeue with longer delay
+                    pending_brainrots[data["instanceid"]] = {
+                        **data,
+                        "timestamp": current_time + 60  # Try again in 1 minute
+                    }
+                else:
+                    print(f"❌ Backend error {response.status_code}: {response.text}")
+            except Exception as e:
+                print(f"❌ Failed to send to backend: {e}")
+                # Requeue for retry
+                pending_brainrots[data["instanceid"]] = {
+                    **data,
+                    "timestamp": current_time + 30  # Try again in 30 seconds
+                }
+        
+        await asyncio.sleep(10)  # Check every 10 seconds
 
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
+    # Start the background task
+    client.loop.create_task(send_pending_brainrots())
 
 @client.event
 async def on_message(message):
@@ -144,8 +199,8 @@ async def on_message(message):
         except Exception as e:
             print(f"Failed to send embed to webhook: {e}")
         
-        # NEW: Send to backend
-        send_to_backend(info)
+        # NEW: Queue for backend (delayed sending)
+        queue_for_backend(info)
     else:
         # fallback: send plain text
         try:
