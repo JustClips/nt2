@@ -28,10 +28,14 @@ async def on_ready():
 async def on_message(message):
     if message.channel.id != CHANNEL_ID:
         return
-    
+
     content = f"[{message.created_at}] {message.author}: {message.content}"
-    # Send to Discord webhook
-    requests.post(WEBHOOK_URL, json={"content": content})
+
+    # Send every message to the webhook
+    try:
+        requests.post(WEBHOOK_URL, json={"content": content})
+    except Exception as e:
+        print(f"Failed to send to webhook: {e}")
 
     # (Optional) keep your previous logic
     money, jobid = parse_money_job(message.content)
