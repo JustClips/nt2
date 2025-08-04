@@ -6,6 +6,7 @@ import requests
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
 WEBHOOK_URL = "https://discord.com/api/webhooks/1402027109890658455/cvXdXAR1O0zlUsuEz8COOiSfEzIX3FyepSj5LXNFrKRFAZIYQRxGLk2T1JrhjZ2kEzRe"
+BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"  # ADD THIS
 
 client = discord.Client()
 
@@ -100,6 +101,28 @@ def build_embed(info):
     }
     return {"embeds": [embed]}
 
+# NEW FUNCTION: Send to backend
+def send_to_backend(info):
+    """Send brainrot data to the backend API"""
+    if not info["name"] or not info["instanceid"]:
+        print("Skipping backend send - missing name or instanceid")
+        return
+    
+    payload = {
+        "name": info["name"],
+        "serverId": info["instanceid"],
+        "jobId": info["instanceid"]
+    }
+    
+    try:
+        response = requests.post(BACKEND_URL, json=payload, timeout=5)
+        if response.status_code == 200:
+            print(f"✅ Sent to backend: {info['name']} -> {info['instanceid']}")
+        else:
+            print(f"❌ Backend error {response.status_code}: {response.text}")
+    except Exception as e:
+        print(f"❌ Failed to send to backend: {e}")
+
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
@@ -120,6 +143,9 @@ async def on_message(message):
             requests.post(WEBHOOK_URL, json=embed_payload)
         except Exception as e:
             print(f"Failed to send embed to webhook: {e}")
+        
+        # NEW: Send to backend
+        send_to_backend(info)
     else:
         # fallback: send plain text
         try:
