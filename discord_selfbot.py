@@ -20,6 +20,26 @@ def parse_money_job(msg):
         return money, jobid
     return None, None
 
+def get_message_full_content(message):
+    parts = []
+    # Text content
+    if message.content and message.content.strip():
+        parts.append(message.content)
+    # Embeds
+    for embed in message.embeds:
+        embed_fields = []
+        if embed.title:
+            embed_fields.append(f"**{embed.title}**")
+        if embed.description:
+            embed_fields.append(embed.description)
+        for field in getattr(embed, "fields", []):
+            embed_fields.append(f"{field.name}: {field.value}")
+        parts.append("\n".join(embed_fields))
+    # Attachments
+    for att in message.attachments:
+        parts.append(att.url)
+    return "\n".join(parts) if parts else "(no content)"
+
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
@@ -29,15 +49,14 @@ async def on_message(message):
     if message.channel.id != CHANNEL_ID:
         return
 
-    content = f"[{message.created_at}] {message.author}: {message.content}"
+    full_content = get_message_full_content(message)
+    content = f"[{message.created_at}] {message.author}: {full_content}"
 
-    # Send every message to the webhook
     try:
         requests.post(WEBHOOK_URL, json={"content": content})
     except Exception as e:
         print(f"Failed to send to webhook: {e}")
 
-    # (Optional) keep your previous logic
     money, jobid = parse_money_job(message.content)
     if money and money > 10:
         with open("join_request.json", "w") as f:
