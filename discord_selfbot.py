@@ -32,20 +32,26 @@ def get_message_full_content(message):
     return "\n".join(parts) if parts else "(no content)"
 
 def parse_brainrot_message(msg):
-    # Extracts info from Brainrot/Hub finder messages
-    money_match = re.search(r'💰 Money per sec\n\$([\d,\.]+[KM]?)/s', msg)
-    jobid_match = re.search(r'🆔 Job ID\n([a-f0-9\-]+)', msg)
-    placeid_match = re.search(r'game:GetService\("TeleportService"\):TeleportToPlaceInstance\((\d+),', msg)
-    instanceid_match = re.search(r'TeleportToPlaceInstance\(\d+, "([a-f0-9\-]+)"', msg)
+    # Extracts info from Brainrot/Hub finder messages, handles both formats
+    money_match = re.search(r'💰 Money per sec\n\$([\d\.,]+[KM]?)/s', msg)
     players_match = re.search(r'👥 Players\n([\d/]+)', msg)
     name_match = re.search(r'🏷️ Name\n([^\n]+)', msg)
+    # Job IDs (Mobile and PC)
+    jobid_mobile_match = re.search(r'🆔 Job ID \(Mobile\)\n([a-f0-9\-]+)', msg)
+    jobid_pc_match = re.search(r'🆔 Job ID \(PC\)\n([a-f0-9\-]+)', msg)
+    # Fallback to "Job ID" only if specific ones not present
+    jobid_match = re.search(r'🆔 Job ID\n([a-f0-9\-]+)', msg)
+    # Place ID and instance ID from Join Script (PC)
+    join_pc_match = re.search(
+        r'game:GetService\("TeleportService"\):TeleportToPlaceInstance\((\d+),\s*"?([a-f0-9\-]+)"?,', msg)
     return {
-        "money_per_sec": money_match.group(1) if money_match else None,
-        "job_id": jobid_match.group(1) if jobid_match else None,
-        "place_id": placeid_match.group(1) if placeid_match else None,
-        "instance_id": instanceid_match.group(1) if instanceid_match else None,
-        "players": players_match.group(1) if players_match else None,
         "name": name_match.group(1) if name_match else None,
+        "money_per_sec": money_match.group(1) if money_match else None,
+        "players": players_match.group(1) if players_match else None,
+        "job_id_mobile": jobid_mobile_match.group(1) if jobid_mobile_match else (jobid_match.group(1) if jobid_match else None),
+        "job_id_pc": jobid_pc_match.group(1) if jobid_pc_match else (jobid_match.group(1) if jobid_match else None),
+        "place_id": join_pc_match.group(1) if join_pc_match else None,
+        "instance_id": join_pc_match.group(2) if join_pc_match else None,
     }
 
 @client.event
@@ -66,12 +72,12 @@ async def on_message(message):
     except Exception as e:
         print(f"Failed to send to webhook: {e}")
 
-    # --- Optional: Parse and log details from Brainrot messages ---
+    # Parse and log details from Brainrot/Hub Finder messages
     brainrot_info = parse_brainrot_message(full_content)
-    if brainrot_info["money_per_sec"] and brainrot_info["job_id"]:
+    # Only log if we have at least a name and money_per_sec or job_id
+    if (brainrot_info["name"] and (brainrot_info["money_per_sec"] or brainrot_info["job_id_pc"] or brainrot_info["job_id_mobile"])):
         print("Brainrot/Hub Finder Message Parsed:")
         print(json.dumps(brainrot_info, indent=2))
-        # You can also save this to a file, database, etc. if desired
         with open("brainrot_found.json", "w") as f:
             json.dump(brainrot_info, f)
 
