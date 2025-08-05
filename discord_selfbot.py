@@ -37,8 +37,8 @@ def parse_info(msg):
         None
     )
 
-    # Try to get placeid from the join script. If not found, use 'unknown'
-    placeid = join_match.group(1) if join_match else "unknown"
+    # Try to get placeid from the join script. If not found, use fixed placeid
+    placeid = join_match.group(1) if join_match else "109983668079237"
 
     return {
         "name": name.group(1).strip() if name else None,
@@ -89,14 +89,40 @@ def build_embed(info):
             "value": f"**{info['players']}**",
             "inline": True
         })
-    # Only add join link if placeid and instanceid are present and not 'unknown'
-    if info["placeid"] and info["instanceid"] and info["placeid"] != "unknown":
+    
+    # Original join link method (if we have both placeid and instanceid and placeid is not the default)
+    if info["placeid"] and info["instanceid"] and info["placeid"] != "109983668079237":
         join_url = f"https://chillihub1.github.io/chillihub-joiner/?placeId={info['placeid']}&gameInstanceId={info['instanceid']}"
         fields.append({
             "name": "🌐 Join Link",
             "value": "[Click to Join](%s)" % join_url,
             "inline": False
         })
+    
+    # New join script method (if we have instanceid but no original script or using default placeid)
+    if info["instanceid"] and not info["script"]:
+        join_script = f"""local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+
+local placeId = {info['placeid']}
+local jobId = "{info['instanceid']}"
+
+local success, err = pcall(function()
+    TeleportService:TeleportToPlaceInstance(placeId, jobId, localPlayer)
+end)
+
+if not success then
+    warn("Teleport failed: " .. tostring(err))
+else
+    print("Teleporting to job ID: " .. jobId)
+end"""
+        fields.append({
+            "name": "📜 Join Script",
+            "value": f"```lua\n{join_script}\n```",
+            "inline": False
+        })
+    
     if info["jobid_mobile"]:
         fields.append({
             "name": "🆔 Job ID (Mobile)",
@@ -115,12 +141,15 @@ def build_embed(info):
             "value": f"```\n{info['jobid_pc']}\n```",
             "inline": False
         })
+    
+    # Original join script method (if it exists in the message)
     if info["script"]:
         fields.append({
             "name": "📜 Join Script (PC)",
             "value": f"```lua\n{info['script']}\n```",
             "inline": False
         })
+    
     embed = {
         "title": "Eps1lon Hub Notifier",
         "color": 0x5865F2,
@@ -130,34 +159,22 @@ def build_embed(info):
 
 def send_to_backend(info):
     """
-    Send info to backend as required by backend's API,
-    handling missing placeid/join script by only sending jobId/instanceId if necessary.
-    Always sends moneyPerSec.
+    Send info to backend - now sends even without placeid/instanceid validation
     """
-    # Always require name and instanceid/jobid
-    if not info["name"] or not info["instanceid"]:
-        print("Skipping backend send - missing name or instanceid")
+    # Only require name now
+    if not info["name"]:
+        print("Skipping backend send - missing name")
         return
 
-    # If placeid is "unknown", only send jobId/instanceId and omit serverId or set as "unknown"
-    if info["placeid"] == "unknown":
-        payload = {
-            "name": info["name"],
-            "jobId": str(info["instanceid"]),
-            "instanceId": str(info["instanceid"]),
-            "players": info["players"],
-            "moneyPerSec": info["money"]
-        }
-        # Optionally: payload["serverId"] = "unknown"  # only if backend requires this field!
-    else:
-        payload = {
-            "name": info["name"],
-            "serverId": str(info["placeid"]),
-            "jobId": str(info["instanceid"]),
-            "instanceId": str(info["instanceid"]),
-            "players": info["players"],
-            "moneyPerSec": info["money"]
-        }
+    payload = {
+        "name": info["name"],
+        "serverId": str(info["placeid"]),
+        "jobId": str(info["instanceid"]) if info["instanceid"] else "",
+        "instanceId": str(info["instanceid"]) if info["instanceid"] else "",
+        "players": info["players"],
+        "moneyPerSec": info["money"]
+    }
+    
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=10)
         if response.status_code == 200:
