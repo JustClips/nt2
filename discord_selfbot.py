@@ -8,36 +8,35 @@ CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890")
 WEBHOOK_URL = "https://discord.com/api/webhooks/1402027109890658455/cvXdXAR1O0zlUsuEz8COOiSfEzIX3FyepSj5LXNFrKRFAZIYQRxGLk2T1JrhjZ2kEzRe"
 BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 
-# Remove Intents for selfbot compatibility:
 client = discord.Client()  # No intents!
 
 def parse_info(msg):
-    name = re.search(r'🏷️ Name\n([^\n]+)', msg)
-    money = re.search(r'💰 Money per sec\n([^\n]+)', msg)
-    players = re.search(r'👥 Players\n([^\n]+)', msg)
-    jobid_mobile = re.search(r'Job ID \(Mobile\)\n([A-Za-z0-9\-+/=]+)', msg)
-    jobid_pc = re.search(r'Job ID \(PC\)\n([A-Za-z0-9\-+/=]+)', msg)
-    script = re.search(r'Join Script \(PC\)\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg)
+    name = re.search(r'🏷️ Name\s*\n([^\n]+)', msg)
+    money = re.search(r'💰 Money per sec\s*\n([^\n]+)', msg)
+    players = re.search(r'👥 Players\s*\n([^\n]+)', msg)
+    jobid_mobile = re.search(r'Job ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    jobid_pc = re.search(r'Job ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    script = re.search(r'Join Script \(PC\)\s*\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg)
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
 
-    players_str = players.group(1) if players else None
+    players_str = players.group(1).strip() if players else None
     current_players = None
     max_players = None
     if players_str:
-        m = re.match(r'(\d+)\s*/\s*(\d+)', players_str.strip())
+        m = re.match(r'(\d+)\s*/\s*(\d+)', players_str)
         if m:
             current_players = int(m.group(1))
             max_players = int(m.group(2))
 
     return {
-        "name": name.group(1) if name else None,
-        "money": money.group(1) if money else None,
+        "name": name.group(1).strip() if name else None,
+        "money": money.group(1).strip() if money else None,
         "players": players_str,
         "current_players": current_players,
         "max_players": max_players,
-        "jobid_mobile": jobid_mobile.group(1) if jobid_mobile else None,
-        "jobid_pc": jobid_pc.group(1) if jobid_pc else None,
-        "script": script.group(1) if script else None,
+        "jobid_mobile": jobid_mobile.group(1).strip() if jobid_mobile else None,
+        "jobid_pc": jobid_pc.group(1).strip() if jobid_pc else None,
+        "script": script.group(1).strip() if script else None,
         "placeid": join_match.group(1) if join_match else None,
         "instanceid": join_match.group(2) if join_match else None
     }
@@ -111,30 +110,22 @@ def build_embed(info):
 
 def send_to_backend(info):
     """
-    Instantly send brainrot info to backend if server has less than 7 players (max allowed: 6/8).
-    Skips if 7/8 or 8/8.
+    Send info to backend as required by backend's API.
     """
-    if not info["name"] or not info["instanceid"]:
-        print("Skipping backend send - missing name or instanceid")
+    # Only send if required fields are present
+    if not info["name"] or not info["placeid"] or not info["instanceid"]:
+        print("Skipping backend send - missing name or placeid or instanceid")
         return
-
-    if info.get("current_players") is None or info.get("max_players") is None:
-        print("Skipping backend send - missing player info")
-        return
-    if info["current_players"] >= 7:
-        print(f"Skipping {info['name']} - player count {info['current_players']}/{info['max_players']} is 7 or more")
-        return
-
     payload = {
         "name": info["name"],
-        "serverId": info["instanceid"],
-        "jobId": info["instanceid"],
+        "serverId": str(info["placeid"]),
+        "jobId": str(info["instanceid"]),
         "players": info["players"]
     }
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=10)
         if response.status_code == 200:
-            print(f"✅ Sent to backend: {info['name']} -> {info['instanceid'][:8]}... ({info['players']})")
+            print(f"✅ Sent to backend: {info['name']} -> {str(info['placeid'])[:8]}... ({info['players']})")
         elif response.status_code == 429:
             print(f"⚠️ Rate limited for backend: {info['name']}")
         else:
@@ -148,19 +139,19 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    # 0 delay in reading channel id and sending to backend
     if message.channel.id not in CHANNEL_IDS:
         return
 
     full_content = get_message_full_content(message)
     info = parse_info(full_content)
+    # Always send to Discord embed if name, money, players are there
     if info["name"] and info["money"] and info["players"]:
         embed_payload = build_embed(info)
         try:
             requests.post(WEBHOOK_URL, json=embed_payload)
         except Exception as e:
             print(f"Failed to send embed to webhook: {e}")
-        # Instantly send to backend (if players < 7)
+        # Always send to backend (if fields are present)
         send_to_backend(info)
     else:
         try:
