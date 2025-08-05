@@ -99,7 +99,7 @@ def build_embed(info):
             "inline": False
         })
     
-    # New join script method (if we have instanceid but no original script or using default placeid)
+    # New join script method (ONLY if we have instanceid but no original script)
     if info["instanceid"] and not info["script"]:
         join_script = f"""local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
@@ -142,7 +142,7 @@ end"""
             "inline": False
         })
     
-    # Original join script method (if it exists in the message)
+    # Original join script method (if it exists in the message) - UNCHANGED
     if info["script"]:
         fields.append({
             "name": "📜 Join Script (PC)",
