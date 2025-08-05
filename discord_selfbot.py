@@ -10,6 +10,17 @@ BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 
 client = discord.Client()  # No intents!
 
+def clean_field(text):
+    """Remove markdown formatting and extra whitespace"""
+    if not text:
+        return text
+    # Remove ** bold formatting
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    # Remove * italic formatting  
+    text = re.sub(r'\*(.*?)\*', r'\1', text)
+    # Remove extra whitespace
+    return text.strip()
+
 def parse_info(msg):
     # Try emoji format first, then text format with proper multiline handling
     name = re.search(r'🏷️ Name\s*\n([^\n]+)', msg, re.MULTILINE)
@@ -40,7 +51,7 @@ def parse_info(msg):
     script = re.search(r'Join Script \(PC\)\s*\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg, re.MULTILINE)
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
 
-    players_str = players.group(1).strip() if players else None
+    players_str = clean_field(players.group(1)) if players else None
     current_players = None
     max_players = None
     if players_str:
@@ -61,8 +72,8 @@ def parse_info(msg):
     placeid = join_match.group(1) if join_match else "109983668079237"
 
     return {
-        "name": name.group(1).strip() if name else None,
-        "money": money.group(1).strip() if money else None,
+        "name": clean_field(name.group(1)) if name else None,
+        "money": clean_field(money.group(1)) if money else None,
         "players": players_str,
         "current_players": current_players,
         "max_players": max_players,
@@ -179,7 +190,7 @@ end"""
 
 def send_to_backend(info):
     """
-    Send info to backend - now sends even without placeid/instanceid validation
+    Send info to backend - now sends clean data without markdown formatting
     """
     # Only require name now
     if not info["name"]:
@@ -187,12 +198,12 @@ def send_to_backend(info):
         return
 
     payload = {
-        "name": info["name"],
+        "name": info["name"],  # Already cleaned by clean_field()
         "serverId": str(info["placeid"]),
         "jobId": str(info["instanceid"]) if info["instanceid"] else "",
         "instanceId": str(info["instanceid"]) if info["instanceid"] else "",
-        "players": info["players"],
-        "moneyPerSec": info["money"]
+        "players": info["players"],  # Already cleaned by clean_field()
+        "moneyPerSec": info["money"]  # Already cleaned by clean_field()
     }
     
     try:
