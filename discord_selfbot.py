@@ -110,7 +110,7 @@ def build_embed(info):
 
 def send_to_backend(info):
     """
-    Send info to backend as required by backend's API.
+    Send info to backend as required by backend's API, including instanceid.
     """
     # Only send if required fields are present
     if not info["name"] or not info["placeid"] or not info["instanceid"]:
@@ -120,6 +120,7 @@ def send_to_backend(info):
         "name": info["name"],
         "serverId": str(info["placeid"]),
         "jobId": str(info["instanceid"]),
+        "instanceId": str(info["instanceid"]),   # <-- ADD THIS LINE
         "players": info["players"]
     }
     try:
