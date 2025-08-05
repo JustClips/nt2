@@ -77,12 +77,12 @@ def build_embed(info):
             "value": f"**{info['money_per_sec']}**",
             "inline": True
         })
-    if info["players"]:
-        fields.append({
-            "name": "Players",
-            "value": f"**{info['players']}**",
-            "inline": True
-        })
+    # Always include players, even if None
+    fields.append({
+        "name": "Players",
+        "value": f"**{info['players'] if info['players'] is not None else 'N/A'}**",
+        "inline": True
+    })
     if info["place_id"] and info["instance_id"]:
         join_url = f"https://chillihub1.github.io/chillihub-joiner/?placeId={info['place_id']}&gameInstanceId={info['instance_id']}"
         fields.append({
@@ -119,7 +119,7 @@ def send_to_backend(info):
     """
     Instantly send all info to backend, always.
     """
-    # Send everything, no filters
+    # Always send, including players field even if None
     try:
         response = requests.post(BACKEND_URL, json=info, timeout=10)
         if response.status_code == 200:
