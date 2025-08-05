@@ -15,6 +15,7 @@ def parse_info(msg):
     money = re.search(r'💰 Money per sec\s*\n([^\n]+)', msg)
     players = re.search(r'👥 Players\s*\n([^\n]+)', msg)
     jobid_mobile = re.search(r'Job ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    jobid_ios = re.search(r'Job ID \(iOS\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
     jobid_pc = re.search(r'Job ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
     script = re.search(r'Join Script \(PC\)\s*\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg)
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
@@ -28,6 +29,17 @@ def parse_info(msg):
             current_players = int(m.group(1))
             max_players = int(m.group(2))
 
+    # Try to get instanceid: prefer PC, fallback to iOS, then mobile
+    instanceid = (
+        jobid_pc.group(1).strip() if jobid_pc else
+        jobid_ios.group(1).strip() if jobid_ios else
+        jobid_mobile.group(1).strip() if jobid_mobile else
+        None
+    )
+
+    # Try to get placeid from the join script. If not found, use 'unknown'
+    placeid = join_match.group(1) if join_match else "unknown"
+
     return {
         "name": name.group(1).strip() if name else None,
         "money": money.group(1).strip() if money else None,
@@ -35,10 +47,11 @@ def parse_info(msg):
         "current_players": current_players,
         "max_players": max_players,
         "jobid_mobile": jobid_mobile.group(1).strip() if jobid_mobile else None,
+        "jobid_ios": jobid_ios.group(1).strip() if jobid_ios else None,
         "jobid_pc": jobid_pc.group(1).strip() if jobid_pc else None,
         "script": script.group(1).strip() if script else None,
-        "placeid": join_match.group(1) if join_match else None,
-        "instanceid": join_match.group(2) if join_match else None
+        "placeid": placeid,
+        "instanceid": instanceid
     }
 
 def get_message_full_content(message):
@@ -76,7 +89,8 @@ def build_embed(info):
             "value": f"**{info['players']}**",
             "inline": True
         })
-    if info["placeid"] and info["instanceid"]:
+    # Only add join link if placeid and instanceid are present and not 'unknown'
+    if info["placeid"] and info["instanceid"] and info["placeid"] != "unknown":
         join_url = f"https://chillihub1.github.io/chillihub-joiner/?placeId={info['placeid']}&gameInstanceId={info['instanceid']}"
         fields.append({
             "name": "🌐 Join Link",
@@ -87,6 +101,12 @@ def build_embed(info):
         fields.append({
             "name": "🆔 Job ID (Mobile)",
             "value": f"`{info['jobid_mobile']}`",
+            "inline": False
+        })
+    if info["jobid_ios"]:
+        fields.append({
+            "name": "🆔 Job ID (iOS)",
+            "value": f"`{info['jobid_ios']}`",
             "inline": False
         })
     if info["jobid_pc"]:
@@ -110,23 +130,38 @@ def build_embed(info):
 
 def send_to_backend(info):
     """
-    Send info to backend as required by backend's API, including instanceid and money per sec.
+    Send info to backend as required by backend's API,
+    handling missing placeid/join script by only sending jobId/instanceId if necessary.
+    Always sends moneyPerSec.
     """
-    if not info["name"] or not info["placeid"] or not info["instanceid"]:
-        print("Skipping backend send - missing name or placeid or instanceid")
+    # Always require name and instanceid/jobid
+    if not info["name"] or not info["instanceid"]:
+        print("Skipping backend send - missing name or instanceid")
         return
-    payload = {
-        "name": info["name"],
-        "serverId": str(info["placeid"]),
-        "jobId": str(info["instanceid"]),
-        "instanceId": str(info["instanceid"]),
-        "players": info["players"],
-        "moneyPerSec": info["money"]  # <-- send money per sec to backend
-    }
+
+    # If placeid is "unknown", only send jobId/instanceId and omit serverId or set as "unknown"
+    if info["placeid"] == "unknown":
+        payload = {
+            "name": info["name"],
+            "jobId": str(info["instanceid"]),
+            "instanceId": str(info["instanceid"]),
+            "players": info["players"],
+            "moneyPerSec": info["money"]
+        }
+        # Optionally: payload["serverId"] = "unknown"  # only if backend requires this field!
+    else:
+        payload = {
+            "name": info["name"],
+            "serverId": str(info["placeid"]),
+            "jobId": str(info["instanceid"]),
+            "instanceId": str(info["instanceid"]),
+            "players": info["players"],
+            "moneyPerSec": info["money"]
+        }
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=10)
         if response.status_code == 200:
-            print(f"✅ Sent to backend: {info['name']} -> {str(info['placeid'])[:8]}... ({info['players']})")
+            print(f"✅ Sent to backend: {info['name']} -> {payload.get('serverId','(none)')[:8]}... ({info['players']})")
         elif response.status_code == 429:
             print(f"⚠️ Rate limited for backend: {info['name']}")
         else:
@@ -145,6 +180,7 @@ async def on_message(message):
 
     full_content = get_message_full_content(message)
     info = parse_info(full_content)
+    # Always send to Discord embed if name, money, players are there
     if info["name"] and info["money"] and info["players"]:
         embed_payload = build_embed(info)
         try:
