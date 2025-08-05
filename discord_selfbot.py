@@ -14,7 +14,8 @@ client = discord.Client()  # No intents!
 def parse_info(msg):
     name = re.search(r'🏷️ Name\n([^\n]+)', msg)
     money = re.search(r'💰 Money per sec\n([^\n]+)', msg)
-    players = re.search(r'👥 Players\n([^\n]+)', msg)
+    # Match "Players" line, with or without emoji, ignore case, flexible formatting
+    players = re.search(r'(?:👥\s*)?Players[:\s]*([0-9]+\s*/\s*[0-9]+)', msg, re.IGNORECASE)
     jobid_mobile = re.search(r'Job ID \(Mobile\)\n([A-Za-z0-9\-+/=]+)', msg)
     jobid_pc = re.search(r'Job ID \(PC\)\n([A-Za-z0-9\-+/=]+)', msg)
     script = re.search(r'Join Script \(PC\)\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg)
@@ -24,7 +25,7 @@ def parse_info(msg):
     current_players = None
     max_players = None
     if players_str:
-        m = re.match(r'(\d+)\s*/\s*(\d+)', players_str.strip())
+        m = re.search(r'(\d+)\s*/\s*(\d+)', players_str)
         if m:
             current_players = int(m.group(1))
             max_players = int(m.group(2))
