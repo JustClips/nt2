@@ -11,12 +11,32 @@ BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 client = discord.Client()  # No intents!
 
 def parse_info(msg):
+    # Try emoji format first, then text format
     name = re.search(r'🏷️ Name\s*\n([^\n]+)', msg)
+    if not name:
+        name = re.search(r':settings: Name\s*\n([^\n]+)', msg)
+    
     money = re.search(r'💰 Money per sec\s*\n([^\n]+)', msg)
+    if not money:
+        money = re.search(r':media: Money per sec\s*\n([^\n]+)', msg)
+    
     players = re.search(r'👥 Players\s*\n([^\n]+)', msg)
+    if not players:
+        players = re.search(r':member: Players\s*\n([^\n]+)', msg)
+    
+    # Try both "Job ID" and "ID" formats
     jobid_mobile = re.search(r'Job ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    if not jobid_mobile:
+        jobid_mobile = re.search(r'ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    
     jobid_ios = re.search(r'Job ID \(iOS\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    if not jobid_ios:
+        jobid_ios = re.search(r'ID \(iOS\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    
     jobid_pc = re.search(r'Job ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    if not jobid_pc:
+        jobid_pc = re.search(r'ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    
     script = re.search(r'Join Script \(PC\)\s*\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg)
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
 
