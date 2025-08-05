@@ -8,7 +8,6 @@ CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890")
 WEBHOOK_URL = "https://discord.com/api/webhooks/1402027109890658455/cvXdXAR1O0zlUsuEz8COOiSfEzIX3FyepSj5LXNFrKRFAZIYQRxGLk2T1JrhjZ2kEzRe"
 BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 
-# Remove Intents for selfbot compatibility:
 client = discord.Client()  # No intents!
 
 def parse_info(msg):
@@ -20,7 +19,7 @@ def parse_info(msg):
     jobid_pc = re.search(r'(?:🆔\s*)?Job ID \(PC\)[:\s]*([A-Za-z0-9\-+/=]+)', msg, re.IGNORECASE)
     script = re.search(r'(?:📜\s*)?Join Script \(PC\)[:\s]*(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg, re.IGNORECASE)
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
-    
+
     players_str = players.group(1) if players else None
     current_players = None
     max_players = None
@@ -29,9 +28,13 @@ def parse_info(msg):
         if m:
             current_players = int(m.group(1))
             max_players = int(m.group(2))
-    
+
+    # If join_match found, extract place_id and instance_id
+    place_id = join_match.group(1) if join_match else None
+    instance_id = join_match.group(2) if join_match else None
+
     return {
-        "server_name": name.group(1).strip() if name else None,
+        "brainrot_name": name.group(1).strip() if name else None,
         "money_per_sec": money.group(1).strip() if money else None,
         "players": players_str.strip() if players_str else None,
         "current_players": current_players,
@@ -39,8 +42,10 @@ def parse_info(msg):
         "job_id_mobile": jobid_mobile.group(1).strip() if jobid_mobile else None,
         "job_id_pc": jobid_pc.group(1).strip() if jobid_pc else None,
         "join_script": script.group(1).strip() if script else None,
-        "place_id": join_match.group(1) if join_match else None,
-        "instance_id": join_match.group(2) if join_match else None,
+        "place_id": place_id,
+        "instance_id": instance_id,
+        "server_id": place_id,      # explicit for backend
+        "job_id": instance_id       # explicit for backend
     }
 
 def get_message_full_content(message):
@@ -60,10 +65,10 @@ def get_message_full_content(message):
 
 def build_embed(info):
     fields = []
-    if info["server_name"]:
+    if info["brainrot_name"]:
         fields.append({
-            "name": "Server Name",
-            "value": f"**{info['server_name']}**",
+            "name": "Brainrot Name",
+            "value": f"**{info['brainrot_name']}**",
             "inline": False
         })
     if info["money_per_sec"]:
@@ -104,7 +109,7 @@ def build_embed(info):
             "inline": False
         })
     embed = {
-        "title": "Brainrot Notify | Chilli Hub",
+        "title": "Eps1lon Hub Notifier",
         "color": 0x00ff99,
         "fields": fields
     }
@@ -112,7 +117,7 @@ def build_embed(info):
 
 def send_to_backend(info):
     """
-    Instantly send brainrot info to backend with all info, no filters.
+    Instantly send all info to backend, always.
     """
     # Send everything, no filters
     try:
