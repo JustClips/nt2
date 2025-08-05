@@ -11,32 +11,31 @@ BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 client = discord.Client()  # No intents!
 
 def parse_info(msg):
-    # Flexible regex to match field with or without emoji and with optional colon or whitespace
+    # More forgiving regex for players: allows spaces or not around slash
     name = re.search(r'(?:🏷️\s*)?Name[:\s]*([^\n]+)', msg, re.IGNORECASE)
     money = re.search(r'(?:💰\s*)?Money per sec[:\s]*([^\n]+)', msg, re.IGNORECASE)
-    players = re.search(r'(?:👥\s*)?Players[:\s]*([0-9]+\s*/\s*[0-9]+)', msg, re.IGNORECASE)
+    players = re.search(r'(?:👥\s*)?Players[:\s]*([0-9]+ ?/? ?[0-9]+)', msg, re.IGNORECASE)
     jobid_mobile = re.search(r'(?:🆔\s*)?Job ID \(Mobile\)[:\s]*([A-Za-z0-9\-+/=]+)', msg, re.IGNORECASE)
     jobid_pc = re.search(r'(?:🆔\s*)?Job ID \(PC\)[:\s]*([A-Za-z0-9\-+/=]+)', msg, re.IGNORECASE)
     script = re.search(r'(?:📜\s*)?Join Script \(PC\)[:\s]*(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg, re.IGNORECASE)
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
 
-    players_str = players.group(1) if players else None
+    players_str = players.group(1).replace(" ", "") if players else None # remove all spaces, e.g. "6 /8" -> "6/8"
     current_players = None
     max_players = None
     if players_str:
-        m = re.search(r'(\d+)\s*/\s*(\d+)', players_str)
+        m = re.match(r'(\d+)/(\d+)', players_str)
         if m:
             current_players = int(m.group(1))
             max_players = int(m.group(2))
 
-    # If join_match found, extract place_id and instance_id
     place_id = join_match.group(1) if join_match else None
     instance_id = join_match.group(2) if join_match else None
 
     return {
         "brainrot_name": name.group(1).strip() if name else None,
         "money_per_sec": money.group(1).strip() if money else None,
-        "players": players_str.strip() if players_str else None,
+        "players": players_str if players_str else None,
         "current_players": current_players,
         "max_players": max_players,
         "job_id_mobile": jobid_mobile.group(1).strip() if jobid_mobile else None,
@@ -44,8 +43,8 @@ def parse_info(msg):
         "join_script": script.group(1).strip() if script else None,
         "place_id": place_id,
         "instance_id": instance_id,
-        "server_id": place_id,      # explicit for backend
-        "job_id": instance_id       # explicit for backend
+        "server_id": place_id,
+        "job_id": instance_id
     }
 
 def get_message_full_content(message):
@@ -119,7 +118,6 @@ def send_to_backend(info):
     """
     Instantly send all info to backend, always.
     """
-    # Always send, including players field even if None
     try:
         response = requests.post(BACKEND_URL, json=info, timeout=10)
         if response.status_code == 200:
@@ -149,7 +147,6 @@ async def on_message(message):
         requests.post(WEBHOOK_URL, json=embed_payload)
     except Exception as e:
         print(f"Failed to send embed to webhook: {e}")
-    # Send everything to backend, always
     send_to_backend(info)
 
 client.run(TOKEN)
