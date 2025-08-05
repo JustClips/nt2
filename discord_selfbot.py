@@ -110,9 +110,8 @@ def build_embed(info):
 
 def send_to_backend(info):
     """
-    Send info to backend as required by backend's API, including instanceid.
+    Send info to backend as required by backend's API, including instanceid and money per sec.
     """
-    # Only send if required fields are present
     if not info["name"] or not info["placeid"] or not info["instanceid"]:
         print("Skipping backend send - missing name or placeid or instanceid")
         return
@@ -120,8 +119,9 @@ def send_to_backend(info):
         "name": info["name"],
         "serverId": str(info["placeid"]),
         "jobId": str(info["instanceid"]),
-        "instanceId": str(info["instanceid"]),   # <-- ADD THIS LINE
-        "players": info["players"]
+        "instanceId": str(info["instanceid"]),
+        "players": info["players"],
+        "moneyPerSec": info["money"]  # <-- send money per sec to backend
     }
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=10)
@@ -145,14 +145,12 @@ async def on_message(message):
 
     full_content = get_message_full_content(message)
     info = parse_info(full_content)
-    # Always send to Discord embed if name, money, players are there
     if info["name"] and info["money"] and info["players"]:
         embed_payload = build_embed(info)
         try:
             requests.post(WEBHOOK_URL, json=embed_payload)
         except Exception as e:
             print(f"Failed to send embed to webhook: {e}")
-        # Always send to backend (if fields are present)
         send_to_backend(info)
     else:
         try:
