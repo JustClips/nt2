@@ -11,33 +11,33 @@ BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 client = discord.Client()  # No intents!
 
 def parse_info(msg):
-    # Try emoji format first, then text format
-    name = re.search(r'🏷️ Name\s*\n([^\n]+)', msg)
+    # Try emoji format first, then text format with proper multiline handling
+    name = re.search(r'🏷️ Name\s*\n([^\n]+)', msg, re.MULTILINE)
     if not name:
-        name = re.search(r':settings: Name\s*\n([^\n]+)', msg)
+        name = re.search(r':settings: Name\s*\n([^\n]+)', msg, re.MULTILINE)
     
-    money = re.search(r'💰 Money per sec\s*\n([^\n]+)', msg)
+    money = re.search(r'💰 Money per sec\s*\n([^\n]+)', msg, re.MULTILINE)
     if not money:
-        money = re.search(r':media: Money per sec\s*\n([^\n]+)', msg)
+        money = re.search(r':media: Money per sec\s*\n([^\n]+)', msg, re.MULTILINE)
     
-    players = re.search(r'👥 Players\s*\n([^\n]+)', msg)
+    players = re.search(r'👥 Players\s*\n([^\n]+)', msg, re.MULTILINE)
     if not players:
-        players = re.search(r':member: Players\s*\n([^\n]+)', msg)
+        players = re.search(r':member: Players\s*\n([^\n]+)', msg, re.MULTILINE)
     
-    # Try both "Job ID" and "ID" formats
-    jobid_mobile = re.search(r'Job ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    # Try both "Job ID" and "ID" formats with multiline
+    jobid_mobile = re.search(r'Job ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
     if not jobid_mobile:
-        jobid_mobile = re.search(r'ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+        jobid_mobile = re.search(r'ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
     
-    jobid_ios = re.search(r'Job ID \(iOS\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    jobid_ios = re.search(r'Job ID \(iOS\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
     if not jobid_ios:
-        jobid_ios = re.search(r'ID \(iOS\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+        jobid_ios = re.search(r'ID \(iOS\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
     
-    jobid_pc = re.search(r'Job ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+    jobid_pc = re.search(r'Job ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
     if not jobid_pc:
-        jobid_pc = re.search(r'ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg)
+        jobid_pc = re.search(r'ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
     
-    script = re.search(r'Join Script \(PC\)\s*\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg)
+    script = re.search(r'Join Script \(PC\)\s*\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg, re.MULTILINE)
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
 
     players_str = players.group(1).strip() if players else None
@@ -217,17 +217,23 @@ async def on_message(message):
 
     full_content = get_message_full_content(message)
     info = parse_info(full_content)
+    
+    # Debug print to see what we're parsing
+    print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
+    
     # Always send to Discord embed if name, money, players are there
     if info["name"] and info["money"] and info["players"]:
         embed_payload = build_embed(info)
         try:
             requests.post(WEBHOOK_URL, json=embed_payload)
+            print(f"✅ Sent embed to webhook for: {info['name']}")
         except Exception as e:
             print(f"Failed to send embed to webhook: {e}")
         send_to_backend(info)
     else:
         try:
             requests.post(WEBHOOK_URL, json={"content": full_content})
+            print(f"⚠️ Sent plain text to webhook (missing fields)")
         except Exception as e:
             print(f"Failed to send plain text to webhook: {e}")
 
