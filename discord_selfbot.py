@@ -11,16 +11,16 @@ BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 client = discord.Client()  # No intents!
 
 def parse_info(msg):
-    # More forgiving regex for players: allows spaces or not around slash
+    # Use regex that allows the value to be on the next line after "Players"
     name = re.search(r'(?:🏷️\s*)?Name[:\s]*([^\n]+)', msg, re.IGNORECASE)
     money = re.search(r'(?:💰\s*)?Money per sec[:\s]*([^\n]+)', msg, re.IGNORECASE)
-    players = re.search(r'(?:👥\s*)?Players[:\s]*([0-9]+ ?/? ?[0-9]+)', msg, re.IGNORECASE)
+    players = re.search(r'(?:👥\s*)?Players\s*\n\s*([0-9]+ ?/? ?[0-9]+)', msg, re.IGNORECASE)
     jobid_mobile = re.search(r'(?:🆔\s*)?Job ID \(Mobile\)[:\s]*([A-Za-z0-9\-+/=]+)', msg, re.IGNORECASE)
     jobid_pc = re.search(r'(?:🆔\s*)?Job ID \(PC\)[:\s]*([A-Za-z0-9\-+/=]+)', msg, re.IGNORECASE)
     script = re.search(r'(?:📜\s*)?Join Script \(PC\)[:\s]*(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg, re.IGNORECASE)
     join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
 
-    players_str = players.group(1).replace(" ", "") if players else None # remove all spaces, e.g. "6 /8" -> "6/8"
+    players_str = players.group(1).replace(" ", "") if players else None  # "6/8"
     current_players = None
     max_players = None
     if players_str:
@@ -40,7 +40,7 @@ def parse_info(msg):
         "max_players": max_players,
         "job_id_mobile": jobid_mobile.group(1).strip() if jobid_mobile else None,
         "job_id_pc": jobid_pc.group(1).strip() if jobid_pc else None,
-        "join_script": script.group(1).strip() if script else None,
+        "join_script_pc": script.group(1).strip() if script else None,
         "place_id": place_id,
         "instance_id": instance_id,
         "server_id": place_id,
@@ -101,10 +101,10 @@ def build_embed(info):
             "value": f"```\n{info['job_id_pc']}\n```",
             "inline": False
         })
-    if info["join_script"]:
+    if info["join_script_pc"]:
         fields.append({
             "name": "Join Script (PC)",
-            "value": f"```lua\n{info['join_script']}\n```",
+            "value": f"```lua\n{info['join_script_pc']}\n```",
             "inline": False
         })
     embed = {
