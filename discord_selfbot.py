@@ -8,9 +8,8 @@ CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890")
 WEBHOOK_URL = "https://discord.com/api/webhooks/1402027109890658455/cvXdXAR1O0zlUsuEz8COOiSfEzIX3FyepSj5LXNFrKRFAZIYQRxGLk2T1JrhjZ2kEzRe"
 BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
 
-intents = discord.Intents.default()
-intents.message_content = True
-client = discord.Client(intents=intents)
+# Remove Intents for selfbot compatibility:
+client = discord.Client()  # No intents!
 
 def parse_info(msg):
     name = re.search(r'🏷️ Name\n([^\n]+)', msg)
