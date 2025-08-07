@@ -15,8 +15,8 @@ if not CHANNEL_ID_ENV or CHANNEL_ID_ENV.strip() == "":
 else:
     CHANNEL_IDS = [int(cid.strip()) for cid in CHANNEL_ID_ENV.split(",") if cid.strip()]
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/1402358424414453920/kJbZBj2lmm0Ln0VtICnQNXLwgbupFO_ww60_SzZrqNkS3pfGUIDZfsGKicQqujXgRYzz"
-BACKEND_URL = "https://discordbot-production-800b.up.railway.app/brainrots"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+BACKEND_URL = os.getenv("BACKEND_URL")
 
 client = discord.Client()  # No intents!
 
@@ -373,6 +373,10 @@ def send_to_backend(info):
     """
     Send info to backend - now sends clean data without markdown formatting
     """
+    if not BACKEND_URL:
+        print("⚠️ BACKEND_URL not configured - skipping backend send")
+        return
+        
     # Only require name now
     if not info["name"]:
         print("Skipping backend send - missing name")
@@ -402,6 +406,14 @@ def send_to_backend(info):
 async def on_ready():
     print(f'Logged in as {client.user}')
     print(f'Monitoring channels: {CHANNEL_IDS}')
+    if WEBHOOK_URL:
+        print('✅ Webhook URL configured')
+    else:
+        print('⚠️ WEBHOOK_URL not configured - webhook sends will be skipped')
+    if BACKEND_URL:
+        print('✅ Backend URL configured')
+    else:
+        print('⚠️ BACKEND_URL not configured - backend sends will be skipped')
 
 @client.event
 async def on_message(message):
@@ -419,21 +431,27 @@ async def on_message(message):
     # Debug print to see what we're parsing
     print(f"Debug - Final parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
     
-    # Always send to Discord embed if name, money, players are there
+    # Always send to Discord embed if name, money, players are there AND webhook is configured
     if info["name"] and info["money"] and info["players"]:
-        embed_payload = build_embed(info)
-        try:
-            requests.post(WEBHOOK_URL, json=embed_payload)
-            print(f"✅ Sent embed to webhook for: {info['name']}")
-        except Exception as e:
-            print(f"Failed to send embed to webhook: {e}")
+        if WEBHOOK_URL:
+            embed_payload = build_embed(info)
+            try:
+                requests.post(WEBHOOK_URL, json=embed_payload)
+                print(f"✅ Sent embed to webhook for: {info['name']}")
+            except Exception as e:
+                print(f"❌ Failed to send embed to webhook: {e}")
+        else:
+            print("⚠️ Webhook URL not configured - skipping webhook send")
         send_to_backend(info)
     else:
-        try:
-            full_content = get_message_full_content(message)
-            requests.post(WEBHOOK_URL, json={"content": full_content})
-            print(f"⚠️ Sent plain text to webhook (missing fields)")
-        except Exception as e:
-            print(f"Failed to send plain text to webhook: {e}")
+        if WEBHOOK_URL:
+            try:
+                full_content = get_message_full_content(message)
+                requests.post(WEBHOOK_URL, json={"content": full_content})
+                print(f"⚠️ Sent plain text to webhook (missing fields)")
+            except Exception as e:
+                print(f"❌ Failed to send plain text to webhook: {e}")
+        else:
+            print("⚠️ Webhook URL not configured - skipping fallback webhook send")
 
 client.run(TOKEN)
