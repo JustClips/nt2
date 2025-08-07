@@ -15,6 +15,7 @@ if not CHANNEL_ID_ENV or CHANNEL_ID_ENV.strip() == "":
 else:
     CHANNEL_IDS = [int(cid.strip()) for cid in CHANNEL_ID_ENV.split(",") if cid.strip()]
 
+# Get webhook and backend URLs from Railway environment variables
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 BACKEND_URL = os.getenv("BACKEND_URL")
 
