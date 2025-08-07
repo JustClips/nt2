@@ -2,7 +2,6 @@ import os
 import discord
 import re
 import requests
-import base64
 import json
 from urllib.parse import unquote
 
@@ -19,150 +18,6 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 BACKEND_URL = os.getenv("BACKEND_URL")
 
 client = discord.Client()  # No intents!
-
-def decrypt_job_id(encrypted_id):
-    """
-    Decrypt the encrypted Job ID to get the actual UUID
-    Uses only built-in Python libraries
-    """
-    try:
-        print(f"[DEBUG] Attempting to decrypt: {encrypted_id}")
-        
-        # Method 1: Try base64 decoding with proper padding
-        try:
-            # Add padding if needed
-            missing_padding = len(encrypted_id) % 4
-            if missing_padding:
-                encrypted_id += '=' * (4 - missing_padding)
-            
-            decoded_bytes = base64.b64decode(encrypted_id)
-            print(f"[DEBUG] Base64 decoded bytes length: {len(decoded_bytes)}")
-            
-            # Try to decode as UTF-8 string
-            try:
-                decoded_str = decoded_bytes.decode('utf-8')
-                print(f"[DEBUG] Decoded string: {decoded_str}")
-                
-                # Look for UUID pattern in decoded string
-                uuid_match = re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', decoded_str, re.IGNORECASE)
-                if uuid_match:
-                    result = uuid_match.group(0).lower()
-                    print(f"[DEBUG] Found UUID: {result}")
-                    return result
-                
-                # Try to parse as JSON (in case it's JSON encoded)
-                try:
-                    json_data = json.loads(decoded_str)
-                    if isinstance(json_data, dict):
-                        for key, value in json_data.items():
-                            if isinstance(value, str) and re.match(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', value, re.IGNORECASE):
-                                result = value.lower()
-                                print(f"[DEBUG] Found UUID in JSON: {result}")
-                                return result
-                except:
-                    pass
-                    
-            except UnicodeDecodeError:
-                print(f"[DEBUG] UTF-8 decode failed, trying hex interpretation")
-                
-        except Exception as e:
-            print(f"[DEBUG] Base64 decode failed: {e}")
-        
-        # Method 2: Try interpreting decoded bytes as hex-encoded UUID
-        try:
-            missing_padding = len(encrypted_id) % 4
-            if missing_padding:
-                encrypted_id += '=' * (4 - missing_padding)
-            
-            decoded_bytes = base64.b64decode(encrypted_id)
-            
-            # If we have 16 bytes, it might be a binary UUID
-            if len(decoded_bytes) == 16:
-                # Convert bytes to hex and format as UUID
-                hex_str = decoded_bytes.hex()
-                formatted_uuid = f"{hex_str[:8]}-{hex_str[8:12]}-{hex_str[12:16]}-{hex_str[16:20]}-{hex_str[20:32]}"
-                print(f"[DEBUG] Binary UUID converted: {formatted_uuid}")
-                return formatted_uuid.lower()
-            
-            # Try to find UUID pattern in hex representation
-            hex_str = decoded_bytes.hex()
-            print(f"[DEBUG] Hex representation: {hex_str}")
-            
-            # Look for UUID-like patterns in the hex
-            if len(hex_str) >= 32:
-                # Try different UUID formats from the hex data
-                for i in range(0, len(hex_str) - 31, 2):
-                    chunk = hex_str[i:i+32]
-                    if len(chunk) == 32:
-                        formatted = f"{chunk[:8]}-{chunk[8:12]}-{chunk[12:16]}-{chunk[16:20]}-{chunk[20:32]}"
-                        print(f"[DEBUG] Trying UUID format: {formatted}")
-                        return formatted.lower()
-                        
-        except Exception as e:
-            print(f"[DEBUG] Binary UUID decode failed: {e}")
-        
-        # Method 3: Try URL decoding first, then base64
-        try:
-            url_decoded = unquote(encrypted_id)
-            if url_decoded != encrypted_id:
-                print(f"[DEBUG] URL decoded: {url_decoded}")
-                return decrypt_job_id(url_decoded)  # Recursive call
-        except Exception as e:
-            print(f"[DEBUG] URL decode failed: {e}")
-        
-        # Method 4: Simple XOR decryption (common for basic encryption)
-        try:
-            missing_padding = len(encrypted_id) % 4
-            if missing_padding:
-                encrypted_id += '=' * (4 - missing_padding)
-            
-            decoded_bytes = base64.b64decode(encrypted_id)
-            
-            # Try different XOR keys
-            for xor_key in [0x42, 0x55, 0xAA, 0xFF, 0x00]:
-                try:
-                    xor_result = bytearray()
-                    for byte in decoded_bytes:
-                        xor_result.append(byte ^ xor_key)
-                    
-                    xor_str = xor_result.decode('utf-8', errors='ignore')
-                    uuid_match = re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', xor_str, re.IGNORECASE)
-                    if uuid_match:
-                        result = uuid_match.group(0).lower()
-                        print(f"[DEBUG] XOR decrypted UUID with key {hex(xor_key)}: {result}")
-                        return result
-                except:
-                    continue
-                    
-        except Exception as e:
-            print(f"[DEBUG] XOR decrypt failed: {e}")
-        
-        # Method 5: Caesar cipher shift (try different shifts)
-        try:
-            for shift in range(1, 26):
-                shifted = ""
-                for char in encrypted_id:
-                    if char.isalpha():
-                        ascii_offset = 65 if char.isupper() else 97
-                        shifted += chr((ord(char) - ascii_offset - shift) % 26 + ascii_offset)
-                    else:
-                        shifted += char
-                
-                uuid_match = re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', shifted, re.IGNORECASE)
-                if uuid_match:
-                    result = uuid_match.group(0).lower()
-                    print(f"[DEBUG] Caesar decrypted UUID with shift {shift}: {result}")
-                    return result
-                    
-        except Exception as e:
-            print(f"[DEBUG] Caesar decrypt failed: {e}")
-        
-        print(f"[DEBUG] All decryption methods failed, returning original: {encrypted_id}")
-        return encrypted_id  # Return original if all methods fail
-        
-    except Exception as e:
-        print(f"[ERROR] Decryption error: {e}")
-        return encrypted_id  # Return original on error
 
 def clean_field(text):
     """Remove markdown formatting and extra whitespace"""
@@ -211,14 +66,11 @@ def parse_info_from_embed(message):
             elif "players" in field_name:
                 info["players"] = field_value
             elif "id (mobile)" in field_name or "mobile" in field_name:
-                # Decrypt the job ID
-                info["jobid_mobile"] = decrypt_job_id(field_value)
+                info["jobid_mobile"] = field_value
             elif "id (pc)" in field_name or "(pc)" in field_name:
-                # Decrypt the job ID
-                info["jobid_pc"] = decrypt_job_id(field_value)
+                info["jobid_pc"] = field_value
             elif "id (ios)" in field_name or "(ios)" in field_name:
-                # Decrypt the job ID
-                info["jobid_ios"] = decrypt_job_id(field_value)
+                info["jobid_ios"] = field_value
     
     # Set instanceid (prefer PC, then iOS, then Mobile)
     info["instanceid"] = (
@@ -257,10 +109,10 @@ def parse_info_from_content(msg):
     jobid_pc = re.search(r'(?:Job\s*)?ID\s*\(PC\)\s*\n([A-Za-z0-9\-+/=`\n]+)', msg, re.MULTILINE | re.IGNORECASE)
     jobid_ios = re.search(r'(?:Job\s*)?ID\s*\(iOS\)\s*\n([A-Za-z0-9\-+/=`\n]+)', msg, re.MULTILINE | re.IGNORECASE)
 
-    # Clean and decrypt job IDs
-    jobid_mobile_clean = decrypt_job_id(clean_field(jobid_mobile.group(1))) if jobid_mobile else None
-    jobid_ios_clean = decrypt_job_id(clean_field(jobid_ios.group(1))) if jobid_ios else None  
-    jobid_pc_clean = decrypt_job_id(clean_field(jobid_pc.group(1))) if jobid_pc else None
+    # Clean job IDs without decryption
+    jobid_mobile_clean = clean_field(jobid_mobile.group(1)) if jobid_mobile else None
+    jobid_ios_clean = clean_field(jobid_ios.group(1)) if jobid_ios else None  
+    jobid_pc_clean = clean_field(jobid_pc.group(1)) if jobid_pc else None
 
     return {
         "name": clean_field(name.group(1)) if name else None,
