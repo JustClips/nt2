@@ -2,175 +2,18 @@ import os
 import discord
 import re
 import requests
-import base64
-import json
-from urllib.parse import unquote
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-
-# Fix for empty CHANNEL_ID environment variable
-CHANNEL_ID_ENV = os.getenv("CHANNEL_ID", "1234567890")
-if not CHANNEL_ID_ENV or CHANNEL_ID_ENV.strip() == "":
-    CHANNEL_IDS = [1234567890]  # Default fallback
-else:
-    CHANNEL_IDS = [int(cid.strip()) for cid in CHANNEL_ID_ENV.split(",") if cid.strip()]
-
-# Get webhook and backend URLs from Railway environment variables
+CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 BACKEND_URL = os.getenv("BACKEND_URL")
 
 client = discord.Client()  # No intents!
 
-def decrypt_job_id(encrypted_id):
-    """
-    Decrypt the encrypted Job ID to get the actual UUID
-    Uses only built-in Python libraries
-    """
-    try:
-        print(f"[DEBUG] Attempting to decrypt: {encrypted_id}")
-        
-        # Method 1: Try base64 decoding with proper padding
-        try:
-            # Add padding if needed
-            missing_padding = len(encrypted_id) % 4
-            if missing_padding:
-                encrypted_id += '=' * (4 - missing_padding)
-            
-            decoded_bytes = base64.b64decode(encrypted_id)
-            print(f"[DEBUG] Base64 decoded bytes length: {len(decoded_bytes)}")
-            
-            # Try to decode as UTF-8 string
-            try:
-                decoded_str = decoded_bytes.decode('utf-8')
-                print(f"[DEBUG] Decoded string: {decoded_str}")
-                
-                # Look for UUID pattern in decoded string
-                uuid_match = re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', decoded_str, re.IGNORECASE)
-                if uuid_match:
-                    result = uuid_match.group(0).lower()
-                    print(f"[DEBUG] Found UUID: {result}")
-                    return result
-                
-                # Try to parse as JSON (in case it's JSON encoded)
-                try:
-                    json_data = json.loads(decoded_str)
-                    if isinstance(json_data, dict):
-                        for key, value in json_data.items():
-                            if isinstance(value, str) and re.match(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', value, re.IGNORECASE):
-                                result = value.lower()
-                                print(f"[DEBUG] Found UUID in JSON: {result}")
-                                return result
-                except:
-                    pass
-                    
-            except UnicodeDecodeError:
-                print(f"[DEBUG] UTF-8 decode failed, trying hex interpretation")
-                
-        except Exception as e:
-            print(f"[DEBUG] Base64 decode failed: {e}")
-        
-        # Method 2: Try interpreting decoded bytes as hex-encoded UUID
-        try:
-            missing_padding = len(encrypted_id) % 4
-            if missing_padding:
-                encrypted_id += '=' * (4 - missing_padding)
-            
-            decoded_bytes = base64.b64decode(encrypted_id)
-            
-            # If we have 16 bytes, it might be a binary UUID
-            if len(decoded_bytes) == 16:
-                # Convert bytes to hex and format as UUID
-                hex_str = decoded_bytes.hex()
-                formatted_uuid = f"{hex_str[:8]}-{hex_str[8:12]}-{hex_str[12:16]}-{hex_str[16:20]}-{hex_str[20:32]}"
-                print(f"[DEBUG] Binary UUID converted: {formatted_uuid}")
-                return formatted_uuid.lower()
-            
-            # Try to find UUID pattern in hex representation
-            hex_str = decoded_bytes.hex()
-            print(f"[DEBUG] Hex representation: {hex_str}")
-            
-            # Look for UUID-like patterns in the hex
-            if len(hex_str) >= 32:
-                # Try different UUID formats from the hex data
-                for i in range(0, len(hex_str) - 31, 2):
-                    chunk = hex_str[i:i+32]
-                    if len(chunk) == 32:
-                        formatted = f"{chunk[:8]}-{chunk[8:12]}-{chunk[12:16]}-{chunk[16:20]}-{chunk[20:32]}"
-                        print(f"[DEBUG] Trying UUID format: {formatted}")
-                        return formatted.lower()
-                        
-        except Exception as e:
-            print(f"[DEBUG] Binary UUID decode failed: {e}")
-        
-        # Method 3: Try URL decoding first, then base64
-        try:
-            url_decoded = unquote(encrypted_id)
-            if url_decoded != encrypted_id:
-                print(f"[DEBUG] URL decoded: {url_decoded}")
-                return decrypt_job_id(url_decoded)  # Recursive call
-        except Exception as e:
-            print(f"[DEBUG] URL decode failed: {e}")
-        
-        # Method 4: Simple XOR decryption (common for basic encryption)
-        try:
-            missing_padding = len(encrypted_id) % 4
-            if missing_padding:
-                encrypted_id += '=' * (4 - missing_padding)
-            
-            decoded_bytes = base64.b64decode(encrypted_id)
-            
-            # Try different XOR keys
-            for xor_key in [0x42, 0x55, 0xAA, 0xFF, 0x00]:
-                try:
-                    xor_result = bytearray()
-                    for byte in decoded_bytes:
-                        xor_result.append(byte ^ xor_key)
-                    
-                    xor_str = xor_result.decode('utf-8', errors='ignore')
-                    uuid_match = re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', xor_str, re.IGNORECASE)
-                    if uuid_match:
-                        result = uuid_match.group(0).lower()
-                        print(f"[DEBUG] XOR decrypted UUID with key {hex(xor_key)}: {result}")
-                        return result
-                except:
-                    continue
-                    
-        except Exception as e:
-            print(f"[DEBUG] XOR decrypt failed: {e}")
-        
-        # Method 5: Caesar cipher shift (try different shifts)
-        try:
-            for shift in range(1, 26):
-                shifted = ""
-                for char in encrypted_id:
-                    if char.isalpha():
-                        ascii_offset = 65 if char.isupper() else 97
-                        shifted += chr((ord(char) - ascii_offset - shift) % 26 + ascii_offset)
-                    else:
-                        shifted += char
-                
-                uuid_match = re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', shifted, re.IGNORECASE)
-                if uuid_match:
-                    result = uuid_match.group(0).lower()
-                    print(f"[DEBUG] Caesar decrypted UUID with shift {shift}: {result}")
-                    return result
-                    
-        except Exception as e:
-            print(f"[DEBUG] Caesar decrypt failed: {e}")
-        
-        print(f"[DEBUG] All decryption methods failed, returning original: {encrypted_id}")
-        return encrypted_id  # Return original if all methods fail
-        
-    except Exception as e:
-        print(f"[ERROR] Decryption error: {e}")
-        return encrypted_id  # Return original on error
-
 def clean_field(text):
     """Remove markdown formatting and extra whitespace"""
     if not text:
         return text
-    # Remove ``` code block formatting
-    text = re.sub(r'```([^`]+)```', r'\1', text)
     # Remove ** bold formatting
     text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
     # Remove * italic formatting  
@@ -178,105 +21,68 @@ def clean_field(text):
     # Remove extra whitespace
     return text.strip()
 
-def parse_info_from_embed(message):
-    """Parse information from Discord embed fields"""
-    info = {
-        "name": None,
-        "money": None,
-        "players": None,
-        "jobid_mobile": None,
-        "jobid_pc": None,
-        "jobid_ios": None,
-        "instanceid": None,
-        "placeid": "109983668079237"
-    }
+def parse_info(msg):
+    # Try emoji format first, then text format with proper multiline handling
+    name = re.search(r'🏷️ Name\s*\n([^\n]+)', msg, re.MULTILINE)
+    if not name:
+        name = re.search(r':settings: Name\s*\n([^\n]+)', msg, re.MULTILINE)
     
-    print(f"[DEBUG] Processing message with {len(message.embeds)} embeds")
+    money = re.search(r'💰 Money per sec\s*\n([^\n]+)', msg, re.MULTILINE)
+    if not money:
+        money = re.search(r':media: Money per sec\s*\n([^\n]+)', msg, re.MULTILINE)
     
-    for embed in message.embeds:
-        print(f"[DEBUG] Embed title: {embed.title}")
-        print(f"[DEBUG] Embed description: {embed.description}")
-        print(f"[DEBUG] Embed has {len(embed.fields)} fields")
-        
-        for field in embed.fields:
-            field_name = field.name.lower().strip()
-            field_value = clean_field(field.value)
-            
-            print(f"[DEBUG] Field: '{field.name}' = '{field.value}' (cleaned: '{field_value}')")
-            
-            # Match field names (case insensitive)
-            if "name" in field_name:
-                info["name"] = field_value
-            elif "money" in field_name or "per sec" in field_name:
-                info["money"] = field_value
-            elif "players" in field_name:
-                info["players"] = field_value
-            elif "id (mobile)" in field_name or "mobile" in field_name:
-                # Decrypt the job ID
-                info["jobid_mobile"] = decrypt_job_id(field_value)
-            elif "id (pc)" in field_name or "(pc)" in field_name:
-                # Decrypt the job ID
-                info["jobid_pc"] = decrypt_job_id(field_value)
-            elif "id (ios)" in field_name or "(ios)" in field_name:
-                # Decrypt the job ID
-                info["jobid_ios"] = decrypt_job_id(field_value)
+    players = re.search(r'👥 Players\s*\n([^\n]+)', msg, re.MULTILINE)
+    if not players:
+        players = re.search(r':member: Players\s*\n([^\n]+)', msg, re.MULTILINE)
     
-    # Set instanceid (prefer PC, then iOS, then Mobile)
-    info["instanceid"] = (
-        info["jobid_pc"] if info["jobid_pc"] else
-        info["jobid_ios"] if info["jobid_ios"] else
-        info["jobid_mobile"] if info["jobid_mobile"] else
+    # Try both "Job ID" and "ID" formats with multiline
+    jobid_mobile = re.search(r'Job ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
+    if not jobid_mobile:
+        jobid_mobile = re.search(r'ID \(Mobile\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
+    
+    jobid_ios = re.search(r'Job ID \(iOS\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
+    if not jobid_ios:
+        jobid_ios = re.search(r'ID \(iOS\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
+    
+    jobid_pc = re.search(r'Job ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
+    if not jobid_pc:
+        jobid_pc = re.search(r'ID \(PC\)\s*\n([A-Za-z0-9\-+/=]+)', msg, re.MULTILINE)
+    
+    script = re.search(r'Join Script \(PC\)\s*\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+\))', msg, re.MULTILINE)
+    join_match = re.search(r'TeleportToPlaceInstance\((\d+),[ "\']*([A-Za-z0-9\-+/=]+)[ "\']*,', msg)
+
+    players_str = clean_field(players.group(1)) if players else None
+    current_players = None
+    max_players = None
+    if players_str:
+        m = re.match(r'(\d+)\s*/\s*(\d+)', players_str)
+        if m:
+            current_players = int(m.group(1))
+            max_players = int(m.group(2))
+
+    # Try to get instanceid: prefer PC, fallback to iOS, then mobile
+    instanceid = (
+        jobid_pc.group(1).strip() if jobid_pc else
+        jobid_ios.group(1).strip() if jobid_ios else
+        jobid_mobile.group(1).strip() if jobid_mobile else
         None
     )
-    
-    return info
 
-def parse_info_from_content(msg):
-    """Fallback: Parse information from message content (old method)"""
-    print(f"[DEBUG] Fallback parsing from content")
-    
-    # Try multiple formats:
-    name = re.search(r'🏷️\s*Name\s*\n([^\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    if not name:
-        name = re.search(r':settings:\s*Name\s*\n([^\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    if not name:
-        name = re.search(r'<:settings:\d+>\s*Name\s*\n([^\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    
-    money = re.search(r'💰\s*Money per sec\s*\n([^\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    if not money:
-        money = re.search(r':media:\s*Money per sec\s*\n([^\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    if not money:
-        money = re.search(r'<:media:\d+>\s*Money per sec\s*\n([^\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    
-    players = re.search(r'👥\s*Players\s*\n([^\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    if not players:
-        players = re.search(r':member:\s*Players\s*\n([^\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    if not players:
-        players = re.search(r'<:member:\d+>\s*Players\s*\n([^\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    
-    jobid_mobile = re.search(r'(?:Job\s*)?ID\s*\(Mobile\)\s*\n([A-Za-z0-9\-+/=`\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    jobid_pc = re.search(r'(?:Job\s*)?ID\s*\(PC\)\s*\n([A-Za-z0-9\-+/=`\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-    jobid_ios = re.search(r'(?:Job\s*)?ID\s*\(iOS\)\s*\n([A-Za-z0-9\-+/=`\n]+)', msg, re.MULTILINE | re.IGNORECASE)
-
-    # Clean and decrypt job IDs
-    jobid_mobile_clean = decrypt_job_id(clean_field(jobid_mobile.group(1))) if jobid_mobile else None
-    jobid_ios_clean = decrypt_job_id(clean_field(jobid_ios.group(1))) if jobid_ios else None  
-    jobid_pc_clean = decrypt_job_id(clean_field(jobid_pc.group(1))) if jobid_pc else None
+    # Try to get placeid from the join script. If not found, use fixed placeid
+    placeid = join_match.group(1) if join_match else "109983668079237"
 
     return {
         "name": clean_field(name.group(1)) if name else None,
         "money": clean_field(money.group(1)) if money else None,
-        "players": clean_field(players.group(1)) if players else None,
-        "jobid_mobile": jobid_mobile_clean,
-        "jobid_ios": jobid_ios_clean,
-        "jobid_pc": jobid_pc_clean,
-        "instanceid": (
-            jobid_pc_clean if jobid_pc_clean else
-            jobid_ios_clean if jobid_ios_clean else
-            jobid_mobile_clean if jobid_mobile_clean else
-            None
-        ),
-        "placeid": "109983668079237"
+        "players": players_str,
+        "current_players": current_players,
+        "max_players": max_players,
+        "jobid_mobile": jobid_mobile.group(1).strip() if jobid_mobile else None,
+        "jobid_ios": jobid_ios.group(1).strip() if jobid_ios else None,
+        "jobid_pc": jobid_pc.group(1).strip() if jobid_pc else None,
+        "script": script.group(1).strip() if script else None,
+        "placeid": placeid,
+        "instanceid": instanceid
     }
 
 def get_message_full_content(message):
@@ -299,24 +105,33 @@ def build_embed(info):
     if info["name"]:
         fields.append({
             "name": "🏷️ Name",
-            "value": info['name'],
+            "value": f"**{info['name']}**",
             "inline": False
         })
     if info["money"]:
         fields.append({
             "name": "💰 Money per sec",
-            "value": info['money'],
-            "inline": False
+            "value": f"**{info['money']}**",
+            "inline": True
         })
     if info["players"]:
         fields.append({
             "name": "👥 Players",
-            "value": info['players'],
+            "value": f"**{info['players']}**",
+            "inline": True
+        })
+    
+    # Original join link method (if we have both placeid and instanceid and placeid is not the default)
+    if info["placeid"] and info["instanceid"] and info["placeid"] != "109983668079237":
+        join_url = f"https://chillihub1.github.io/chillihub-joiner/?placeId={info['placeid']}&gameInstanceId={info['instanceid']}"
+        fields.append({
+            "name": "🌐 Join Link",
+            "value": "[Click to Join](%s)" % join_url,
             "inline": False
         })
     
-    # Always add join script if we have instanceid
-    if info["instanceid"]:
+    # New join script method (ONLY if we have instanceid but no original script)
+    if info["instanceid"] and not info["script"]:
         join_script = f"""local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
@@ -339,27 +154,30 @@ end"""
             "inline": False
         })
     
-    # Always show Mobile Job ID if available
     if info["jobid_mobile"]:
         fields.append({
             "name": "🆔 Job ID (Mobile)",
             "value": f"`{info['jobid_mobile']}`",
             "inline": False
         })
-    
-    # Show PC Job ID if different from Mobile
-    if info["jobid_pc"] and info["jobid_pc"] != info["jobid_mobile"]:
-        fields.append({
-            "name": "🆔 Job ID (PC)",
-            "value": f"`{info['jobid_pc']}`",
-            "inline": False
-        })
-    
-    # Show iOS Job ID if different from both Mobile and PC
-    if info["jobid_ios"] and info["jobid_ios"] != info["jobid_mobile"] and info["jobid_ios"] != info["jobid_pc"]:
+    if info["jobid_ios"]:
         fields.append({
             "name": "🆔 Job ID (iOS)",
             "value": f"`{info['jobid_ios']}`",
+            "inline": False
+        })
+    if info["jobid_pc"]:
+        fields.append({
+            "name": "🆔 Job ID (PC)",
+            "value": f"```\n{info['jobid_pc']}\n```",
+            "inline": False
+        })
+    
+    # Original join script method (if it exists in the message) - UNCHANGED
+    if info["script"]:
+        fields.append({
+            "name": "📜 Join Script (PC)",
+            "value": f"```lua\n{info['script']}\n```",
             "inline": False
         })
     
@@ -380,12 +198,12 @@ def send_to_backend(info):
         return
 
     payload = {
-        "name": info["name"],
+        "name": info["name"],  # Already cleaned by clean_field()
         "serverId": str(info["placeid"]),
         "jobId": str(info["instanceid"]) if info["instanceid"] else "",
         "instanceId": str(info["instanceid"]) if info["instanceid"] else "",
-        "players": info["players"],
-        "moneyPerSec": info["money"]
+        "players": info["players"],  # Already cleaned by clean_field()
+        "moneyPerSec": info["money"]  # Already cleaned by clean_field()
     }
     
     try:
@@ -402,23 +220,17 @@ def send_to_backend(info):
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
-    print(f'Monitoring channels: {CHANNEL_IDS}')
 
 @client.event
 async def on_message(message):
     if message.channel.id not in CHANNEL_IDS:
         return
 
-    # Try parsing from embed fields first (new method)
-    if message.embeds:
-        info = parse_info_from_embed(message)
-    else:
-        # Fallback to content parsing (old method)
-        full_content = get_message_full_content(message)
-        info = parse_info_from_content(full_content)
+    full_content = get_message_full_content(message)
+    info = parse_info(full_content)
     
     # Debug print to see what we're parsing
-    print(f"Debug - Final parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
+    print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
     
     # Always send to Discord embed if name, money, players are there
     if info["name"] and info["money"] and info["players"]:
@@ -431,7 +243,6 @@ async def on_message(message):
         send_to_backend(info)
     else:
         try:
-            full_content = get_message_full_content(message)
             requests.post(WEBHOOK_URL, json={"content": full_content})
             print(f"⚠️ Sent plain text to webhook (missing fields)")
         except Exception as e:
