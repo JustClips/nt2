@@ -168,8 +168,12 @@ def build_embed(info):
     
     # Create executable join script if we have instanceid
     if info["instanceid"]:
-        # Simple one-liner script
-        simple_script = f'game:GetService("TeleportService"):TeleportToPlaceInstance({info["placeid"]}, "{info["instanceid"]}", game.Players.LocalPlayer)'
+        # Clean the job ID to ensure it's valid for Lua strings
+        clean_jobid = str(info["instanceid"]).strip()
+        clean_placeid = str(info["placeid"]).strip()
+        
+        # Simple one-liner script with proper Lua syntax
+        simple_script = f'game:GetService("TeleportService"):TeleportToPlaceInstance({clean_placeid}, "{clean_jobid}", game.Players.LocalPlayer)'
         
         fields.append({
             "name": "🚀 Quick Join Script",
@@ -178,12 +182,16 @@ def build_embed(info):
         })
         
         # Detailed script with error handling
-        detailed_script = f"""local TeleportService = game:GetService("TeleportService")
+        detailed_script = f"""-- Teleport Script
+local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 
-local placeId = {info['placeid']}
-local jobId = "{info['instanceid']}"
+local placeId = {clean_placeid}
+local jobId = "{clean_jobid}"
+
+print("Attempting to teleport to Place ID: " .. tostring(placeId))
+print("Job ID: " .. jobId)
 
 local success, err = pcall(function()
     TeleportService:TeleportToPlaceInstance(placeId, jobId, localPlayer)
@@ -192,7 +200,7 @@ end)
 if not success then
     warn("Teleport failed: " .. tostring(err))
 else
-    print("Teleporting to job ID: " .. jobId)
+    print("Teleporting to server...")
 end"""
         
         fields.append({
