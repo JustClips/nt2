@@ -166,9 +166,19 @@ def build_embed(info):
             "inline": False
         })
     
-    # Always add join script if we have instanceid
+    # Create executable join script if we have instanceid
     if info["instanceid"]:
-        join_script = f"""local TeleportService = game:GetService("TeleportService")
+        # Simple one-liner script
+        simple_script = f'game:GetService("TeleportService"):TeleportToPlaceInstance({info["placeid"]}, "{info["instanceid"]}", game.Players.LocalPlayer)'
+        
+        fields.append({
+            "name": "🚀 Quick Join Script",
+            "value": f"```lua\n{simple_script}\n```",
+            "inline": False
+        })
+        
+        # Detailed script with error handling
+        detailed_script = f"""local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 
@@ -184,9 +194,10 @@ if not success then
 else
     print("Teleporting to job ID: " .. jobId)
 end"""
+        
         fields.append({
-            "name": "📜 Join Script",
-            "value": f"```lua\n{join_script}\n```",
+            "name": "📜 Detailed Join Script",
+            "value": f"```lua\n{detailed_script}\n```",
             "inline": False
         })
     
