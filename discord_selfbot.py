@@ -17,7 +17,8 @@ else:
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 BACKEND_URL = os.getenv("BACKEND_URL")
 
-client = discord.Client()  # No intents!
+# Old discord.py version - no intents needed
+client = discord.Client()
 
 def clean_field(text):
     """Remove markdown formatting and extra whitespace"""
