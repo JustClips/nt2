@@ -2,10 +2,12 @@ import os
 import discord
 import re
 import requests
+import threading
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+# Support multiple webhook URLs separated by commas
+WEBHOOK_URLS = [url.strip() for url in os.getenv("WEBHOOK_URLS", "").split(",") if url.strip()]
 BACKEND_URL = os.getenv("BACKEND_URL")
 
 client = discord.Client()  # No intents!
@@ -188,6 +190,29 @@ end"""
     }
     return {"embeds": [embed]}
 
+def send_to_webhooks(payload):
+    """Send payload to all configured webhooks"""
+    def send_to_webhook(url, payload):
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code in [200, 204]:
+                print(f"✅ Sent to webhook: {url[:50]}...")
+            else:
+                print(f"❌ Webhook error {response.status_code} for {url[:50]}...")
+        except Exception as e:
+            print(f"❌ Failed to send to webhook {url[:50]}...: {e}")
+    
+    # Send to all webhooks in parallel using threads
+    threads = []
+    for webhook_url in WEBHOOK_URLS:
+        thread = threading.Thread(target=send_to_webhook, args=(webhook_url, payload))
+        thread.start()
+        threads.append(thread)
+    
+    # Wait for all requests to complete
+    for thread in threads:
+        thread.join()
+
 def send_to_backend(info):
     """
     Send info to backend - now sends clean data without markdown formatting
@@ -220,6 +245,7 @@ def send_to_backend(info):
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
+    print(f'Configured to send to {len(WEBHOOK_URLS)} webhook(s)')
 
 @client.event
 async def on_message(message):
@@ -235,17 +261,11 @@ async def on_message(message):
     # Always send to Discord embed if name, money, players are there
     if info["name"] and info["money"] and info["players"]:
         embed_payload = build_embed(info)
-        try:
-            requests.post(WEBHOOK_URL, json=embed_payload)
-            print(f"✅ Sent embed to webhook for: {info['name']}")
-        except Exception as e:
-            print(f"Failed to send embed to webhook: {e}")
+        send_to_webhooks(embed_payload)
+        print(f"✅ Sent embed to all webhooks for: {info['name']}")
         send_to_backend(info)
     else:
-        try:
-            requests.post(WEBHOOK_URL, json={"content": full_content})
-            print(f"⚠️ Sent plain text to webhook (missing fields)")
-        except Exception as e:
-            print(f"Failed to send plain text to webhook: {e}")
+        send_to_webhooks({"content": full_content})
+        print(f"⚠️ Sent plain text to all webhooks (missing fields)")
 
 client.run(TOKEN)
