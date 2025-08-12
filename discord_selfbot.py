@@ -216,26 +216,30 @@ def send_to_backend(info):
     """
     Send info to backend - now sends clean data without markdown formatting
     """
-    # Only require name now
-    if not info["name"]:
-        print("Skipping backend send - missing name")
+    # All three required fields must be present and non-empty for backend
+    name = info.get("name")
+    serverId = str(info.get("placeid", "")).strip()
+    jobId = str(info.get("instanceid", "")).strip()
+    if not name or not serverId or not jobId:
+        print("❌ Skipping backend send - missing required field:",
+              f"name='{name}' serverId='{serverId}' jobId='{jobId}'")
         return
 
     payload = {
-        "name": info["name"],  # Already cleaned by clean_field()
-        "serverId": str(info["placeid"]),
-        "jobId": str(info["instanceid"]) if info["instanceid"] else "",
-        "instanceId": str(info["instanceid"]) if info["instanceid"] else "",
-        "players": info["players"],  # Already cleaned by clean_field()
-        "moneyPerSec": info["money"]  # Already cleaned by clean_field()
+        "name": name,
+        "serverId": serverId,
+        "jobId": jobId,
+        "instanceId": jobId,
+        "players": info.get("players", ""),
+        "moneyPerSec": info.get("money", "")
     }
     
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=10)
         if response.status_code == 200:
-            print(f"✅ Sent to backend: {info['name']} -> {payload.get('serverId','(none)')[:8]}... ({info['players']})")
+            print(f"✅ Sent to backend: {name} -> {serverId[:8]}... ({payload.get('players')})")
         elif response.status_code == 429:
-            print(f"⚠️ Rate limited for backend: {info['name']}")
+            print(f"⚠️ Rate limited for backend: {name}")
         else:
             print(f"❌ Backend error {response.status_code}: {response.text}")
     except Exception as e:
@@ -251,7 +255,7 @@ async def on_message(message):
     if message.channel.id not in CHANNEL_IDS:
         return
 
-    # Log embed contents if present, then forward and send to backend as before
+    # If message contains embeds, forward them as-is, log all fields, and send to backend
     if message.embeds and len(message.embeds) > 0:
         for embed in message.embeds:
             print("---- Embed Received ----")
@@ -260,13 +264,14 @@ async def on_message(message):
             for field in embed.fields:
                 print(f"{field.name}\n{field.value}")
             print("------------------------")
-            # Forward the embed as-is
+            # Forward embed as-is
             embed_dict = embed.to_dict()
             send_to_webhooks({"embeds": [embed_dict]})
-            # Optionally, extract fields for backend send (uses original parsing logic)
+            # Parse fields for backend send
             embed_info = {}
             for field in embed.fields:
                 fname = field.name.strip()
+                # Remove markdown and backticks for backend
                 if fname == "🏷️ Name":
                     embed_info["name"] = clean_field(field.value)
                 elif fname == "💰 Money per sec":
@@ -275,10 +280,14 @@ async def on_message(message):
                     embed_info["players"] = clean_field(field.value)
                 elif fname == "🆔 Job ID":
                     embed_info["instanceid"] = clean_field(field.value).replace("`", "")
-            # Use default/fallback placeid if not present
-            embed_info["placeid"] = "109983668079237"
+                elif fname == "🌐 Server ID":
+                    embed_info["placeid"] = clean_field(field.value)
+            # Fallback for missing server id
+            if "placeid" not in embed_info:
+                embed_info["placeid"] = "109983668079237"
             send_to_backend(embed_info)
     else:
+        # Fallback: process as text
         full_content = get_message_full_content(message)
         info = parse_info(full_content)
         print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
