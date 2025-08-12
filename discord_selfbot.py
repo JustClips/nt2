@@ -6,6 +6,7 @@ import threading
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
+# Support multiple webhook URLs separated by commas
 WEBHOOK_URLS = [url.strip() for url in os.getenv("WEBHOOK_URLS", "").split(",") if url.strip()]
 BACKEND_URL = os.getenv("BACKEND_URL")
 
@@ -216,30 +217,26 @@ def send_to_backend(info):
     """
     Send info to backend - now sends clean data without markdown formatting
     """
-    # All three required fields must be present and non-empty for backend
-    name = info.get("name")
-    serverId = str(info.get("placeid", "")).strip()
-    jobId = str(info.get("instanceid", "")).strip()
-    if not name or not serverId or not jobId:
-        print("❌ Skipping backend send - missing required field:",
-              f"name='{name}' serverId='{serverId}' jobId='{jobId}'")
+    # Only require name now
+    if not info["name"]:
+        print("Skipping backend send - missing name")
         return
 
     payload = {
-        "name": name,
-        "serverId": serverId,
-        "jobId": jobId,
-        "instanceId": jobId,
-        "players": info.get("players", ""),
-        "moneyPerSec": info.get("money", "")
+        "name": info["name"],  # Already cleaned by clean_field()
+        "serverId": str(info["placeid"]),
+        "jobId": str(info["instanceid"]) if info["instanceid"] else "",
+        "instanceId": str(info["instanceid"]) if info["instanceid"] else "",
+        "players": info["players"],  # Already cleaned by clean_field()
+        "moneyPerSec": info["money"]  # Already cleaned by clean_field()
     }
     
     try:
         response = requests.post(BACKEND_URL, json=payload, timeout=10)
         if response.status_code == 200:
-            print(f"✅ Sent to backend: {name} -> {serverId[:8]}... ({payload.get('players')})")
+            print(f"✅ Sent to backend: {info['name']} -> {payload.get('serverId','(none)')[:8]}... ({info['players']})")
         elif response.status_code == 429:
-            print(f"⚠️ Rate limited for backend: {name}")
+            print(f"⚠️ Rate limited for backend: {info['name']}")
         else:
             print(f"❌ Backend error {response.status_code}: {response.text}")
     except Exception as e:
@@ -255,50 +252,20 @@ async def on_message(message):
     if message.channel.id not in CHANNEL_IDS:
         return
 
-    # If message contains embeds, forward them as-is, log all fields, and send to backend
-    if message.embeds and len(message.embeds) > 0:
-        for embed in message.embeds:
-            print("---- Embed Received ----")
-            if embed.title:
-                print(embed.title)
-            for field in embed.fields:
-                print(f"{field.name}\n{field.value}")
-            print("------------------------")
-            # Forward embed as-is
-            embed_dict = embed.to_dict()
-            send_to_webhooks({"embeds": [embed_dict]})
-            # Parse fields for backend send
-            embed_info = {}
-            for field in embed.fields:
-                fname = field.name.strip()
-                # Remove markdown and backticks for backend
-                if fname == "🏷️ Name":
-                    embed_info["name"] = clean_field(field.value)
-                elif fname == "💰 Money per sec":
-                    embed_info["money"] = clean_field(field.value)
-                elif fname == "👥 Players":
-                    embed_info["players"] = clean_field(field.value)
-                elif fname == "🆔 Job ID":
-                    embed_info["instanceid"] = clean_field(field.value).replace("`", "")
-                elif fname == "🌐 Server ID":
-                    embed_info["placeid"] = clean_field(field.value)
-            # Fallback for missing server id
-            if "placeid" not in embed_info:
-                embed_info["placeid"] = "109983668079237"
-            send_to_backend(embed_info)
+    full_content = get_message_full_content(message)
+    info = parse_info(full_content)
+    
+    # Debug print to see what we're parsing
+    print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
+    
+    # Always send to Discord embed if name, money, players are there
+    if info["name"] and info["money"] and info["players"]:
+        embed_payload = build_embed(info)
+        send_to_webhooks(embed_payload)
+        print(f"✅ Sent embed to all webhooks for: {info['name']}")
+        send_to_backend(info)
     else:
-        # Fallback: process as text
-        full_content = get_message_full_content(message)
-        info = parse_info(full_content)
-        print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
-        # Always send to Discord embed if name, money, players are there
-        if info["name"] and info["money"] and info["players"]:
-            embed_payload = build_embed(info)
-            send_to_webhooks(embed_payload)
-            print(f"✅ Sent embed to all webhooks for: {info['name']}")
-            send_to_backend(info)
-        else:
-            send_to_webhooks({"content": full_content})
-            print(f"⚠️ Sent plain text to all webhooks (missing fields)")
+        send_to_webhooks({"content": full_content})
+        print(f"⚠️ Sent plain text to all webhooks (missing fields)")
 
 client.run(TOKEN)
