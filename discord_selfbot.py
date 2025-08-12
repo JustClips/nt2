@@ -6,7 +6,6 @@ import threading
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
-# Support multiple webhook URLs separated by commas
 WEBHOOK_URLS = [url.strip() for url in os.getenv("WEBHOOK_URLS", "").split(",") if url.strip()]
 BACKEND_URL = os.getenv("BACKEND_URL")
 
@@ -252,20 +251,45 @@ async def on_message(message):
     if message.channel.id not in CHANNEL_IDS:
         return
 
-    full_content = get_message_full_content(message)
-    info = parse_info(full_content)
-    
-    # Debug print to see what we're parsing
-    print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
-    
-    # Always send to Discord embed if name, money, players are there
-    if info["name"] and info["money"] and info["players"]:
-        embed_payload = build_embed(info)
-        send_to_webhooks(embed_payload)
-        print(f"✅ Sent embed to all webhooks for: {info['name']}")
-        send_to_backend(info)
+    # Log embed contents if present, then forward and send to backend as before
+    if message.embeds and len(message.embeds) > 0:
+        for embed in message.embeds:
+            print("---- Embed Received ----")
+            if embed.title:
+                print(embed.title)
+            for field in embed.fields:
+                print(f"{field.name}\n{field.value}")
+            print("------------------------")
+            # Forward the embed as-is
+            embed_dict = embed.to_dict()
+            send_to_webhooks({"embeds": [embed_dict]})
+            # Optionally, extract fields for backend send (uses original parsing logic)
+            embed_info = {}
+            for field in embed.fields:
+                fname = field.name.strip()
+                if fname == "🏷️ Name":
+                    embed_info["name"] = clean_field(field.value)
+                elif fname == "💰 Money per sec":
+                    embed_info["money"] = clean_field(field.value)
+                elif fname == "👥 Players":
+                    embed_info["players"] = clean_field(field.value)
+                elif fname == "🆔 Job ID":
+                    embed_info["instanceid"] = clean_field(field.value).replace("`", "")
+            # Use default/fallback placeid if not present
+            embed_info["placeid"] = "109983668079237"
+            send_to_backend(embed_info)
     else:
-        send_to_webhooks({"content": full_content})
-        print(f"⚠️ Sent plain text to all webhooks (missing fields)")
+        full_content = get_message_full_content(message)
+        info = parse_info(full_content)
+        print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
+        # Always send to Discord embed if name, money, players are there
+        if info["name"] and info["money"] and info["players"]:
+            embed_payload = build_embed(info)
+            send_to_webhooks(embed_payload)
+            print(f"✅ Sent embed to all webhooks for: {info['name']}")
+            send_to_backend(info)
+        else:
+            send_to_webhooks({"content": full_content})
+            print(f"⚠️ Sent plain text to all webhooks (missing fields)")
 
 client.run(TOKEN)
