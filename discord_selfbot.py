@@ -61,6 +61,7 @@ def parse_info(msg, embed_fields=None):
     jobid_mobile = find_field_by_suffix(embed_fields, ["idmobile"])
     jobid_pc = find_field_by_suffix(embed_fields, ["idpc"])
     script = find_field_by_suffix(embed_fields, ["script"])
+    instanceid = find_field_by_suffix(embed_fields, ["instanceid"])
 
     # Fallback to regex if not found in embed
     if not name:
@@ -91,6 +92,10 @@ def parse_info(msg, embed_fields=None):
             re.search(r'(?:<:script:[^>]+>|:script:)\s*ID \(PC\)\s*\n(?:```)?([^\n`]+)', msg, re.MULTILINE)
         )
         jobid_pc = jobid_pc.group(1).strip() if jobid_pc else None
+    if not instanceid:
+        # Try to find a line like "InstanceId\n<id>" or similar
+        m = re.search(r'instanceid\s*\n(?:```)?([^\n`]+)', msg, re.IGNORECASE)
+        instanceid = m.group(1).strip() if m else None
     if not script:
         script = (
             re.search(r'(?:<:script:[^>]+>|:script:)\s*Script\s*\n```lua\n?(.*?)```', msg, re.DOTALL) or
@@ -98,12 +103,28 @@ def parse_info(msg, embed_fields=None):
         )
         script = script.group(1).strip() if script else None
 
+    # Scan script for either if missing
+    placeid_from_script = None
+    id_from_script = None
+    if script:
+        m = re.search(r'TeleportToPlaceInstance\((\d+),["\']?([A-Za-z0-9\-]+)', script)
+        if m:
+            placeid_from_script = m.group(1)
+            id_from_script = m.group(2)
+            if not jobid_pc and not instanceid:
+                jobid_pc = id_from_script
+            elif not jobid_pc:
+                jobid_pc = id_from_script
+            elif not instanceid:
+                instanceid = id_from_script
+
     # Clean all fields
     name = clean_field(name)
     money = clean_field(money)
     players_str = clean_field(players)
     jobid_mobile = clean_field(jobid_mobile)
     jobid_pc = clean_field(jobid_pc)
+    instanceid = clean_field(instanceid)
     script = clean_field(script)
 
     current_players = None
@@ -114,16 +135,13 @@ def parse_info(msg, embed_fields=None):
             current_players = int(m.group(1))
             max_players = int(m.group(2))
 
-    # Instanceid: prefer PC, fallback to mobile
-    instanceid = jobid_pc or jobid_mobile
+    # Instanceid/jobid unification logic
+    id_for_join = jobid_pc or instanceid or jobid_mobile or id_from_script
 
     # Placeid: try to extract from script, fallback to constant
     placeid = "109983668079237"
-    if script:
-        m = re.search(r'TeleportToPlaceInstance\((\d+),["\']?([A-Za-z0-9\-]+)', script)
-        if m:
-            placeid = m.group(1)
-            instanceid = m.group(2)
+    if placeid_from_script:
+        placeid = placeid_from_script
 
     return {
         "name": name,
@@ -133,9 +151,10 @@ def parse_info(msg, embed_fields=None):
         "max_players": max_players,
         "jobid_mobile": jobid_mobile,
         "jobid_pc": jobid_pc,
+        "instanceid": instanceid,
         "script": script,
         "placeid": placeid,
-        "instanceid": instanceid
+        "id_for_join": id_for_join
     }
 
 def build_embed(info):
@@ -158,20 +177,20 @@ def build_embed(info):
             "value": f"**{info['players']}**",
             "inline": True
         })
-    if info["placeid"] and info["instanceid"]:
-        join_url = f"https://chillihub1.github.io/chillihub-joiner/?placeId={info['placeid']}&gameInstanceId={info['instanceid']}"
+    if info["placeid"] and info["id_for_join"]:
+        join_url = f"https://chillihub1.github.io/chillihub-joiner/?placeId={info['placeid']}&gameInstanceId={info['id_for_join']}"
         fields.append({
             "name": "🌐 Join Link",
-            "value": "[Click to Join](%s)" % join_url,
+            "value": f"[Click to Join]({join_url})",
             "inline": False
         })
-    if info["instanceid"] and not info["script"]:
+    if info["id_for_join"] and not info["script"]:
         join_script = f"""local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 
 local placeId = {info['placeid']}
-local jobId = "{info['instanceid']}"
+local jobId = "{info['id_for_join']}"
 
 local success, err = pcall(function()
     TeleportService:TeleportToPlaceInstance(placeId, jobId, localPlayer)
@@ -237,8 +256,8 @@ def send_to_backend(info):
     payload = {
         "name": info["name"],
         "serverId": str(info["placeid"]),
-        "jobId": str(info["instanceid"]) if info["instanceid"] else "",
-        "instanceId": str(info["instanceid"]) if info["instanceid"] else "",
+        "jobId": str(info["id_for_join"]) if info["id_for_join"] else "",
+        "instanceId": str(info["id_for_join"]) if info["id_for_join"] else "",
         "players": info["players"],
         "moneyPerSec": info["money"]
     }
@@ -266,8 +285,8 @@ async def on_message(message):
     print("Raw message content:", full_content)
     print("Embed fields:", embed_fields)
     info = parse_info(full_content, embed_fields)
-    print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
-    if info["name"] and info["money"] and info["players"] and info["instanceid"]:
+    print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', id_for_join='{info['id_for_join']}'")
+    if info["name"] and info["money"] and info["players"] and info["id_for_join"]:
         embed_payload = build_embed(info)
         send_to_webhooks(embed_payload)
         print(f"✅ Sent embed to all webhooks for: {info['name']}")
