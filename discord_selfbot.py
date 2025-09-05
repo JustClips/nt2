@@ -3,14 +3,13 @@ import discord
 import re
 import asyncio
 import aiohttp
-import threading
-from concurrent.futures import ThreadPoolExecutor
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("BACKEND_URL")
+CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
+WEBHOOK_URLS = [url.strip() for url in os.getenv("WEBHOOK_URLS", "").split(",") if url.strip()]
+BACKEND_URL = os.getenv("BACKEND_URL")
 
 client = discord.Client()
-executor = ThreadPoolExecutor(max_workers=10)
 
 def clean_field(text):
     """Remove markdown/code formatting and extra whitespace"""
