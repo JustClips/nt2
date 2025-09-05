@@ -1,15 +1,16 @@
 import os
 import discord
 import re
-import requests
+import asyncio
+import aiohttp
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("CHANNEL_ID", "1234567890").split(",")]
-WEBHOOK_URLS = [url.strip() for url in os.getenv("WEBHOOK_URLS", "").split(",") if url.strip()]
-BACKEND_URL = os.getenv("BACKEND_URL")
+CHANNEL_IDS = [int(cid.strip()) for cid in os.getenv("BACKEND_URL")
 
-client = discord.Client()  # Selfbot, NO intents!
+client = discord.Client()
+executor = ThreadPoolExecutor(max_workers=10)
 
 def clean_field(text):
     """Remove markdown/code formatting and extra whitespace"""
@@ -21,7 +22,7 @@ def clean_field(text):
     text = re.sub(r"`([^`]*)`", r"\1", text)
     # Remove ** bold formatting
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
-    # Remove * italic formatting  
+    # Remove * italic formatting
     text = re.sub(r"\*(.*?)\*", r"\1", text)
     return text.strip()
 
@@ -83,18 +84,18 @@ def parse_info(msg, embed_fields=None):
         players = players.group(1).strip() if players else None
     if not jobid_mobile:
         jobid_mobile = (
-            re.search(r'(?:<:phone:[^>]+>|:phone:)\s*ID \(Mobile\)\s*\n([^\n`]+)', msg, re.MULTILINE)
+            re.search(r'(?:<:phone:[^>]+>|:phone:)\s*ID KATEX_INLINE_OPENMobileKATEX_INLINE_CLOSE\s*\n([^\n`]+)', msg, re.MULTILINE)
         )
         jobid_mobile = jobid_mobile.group(1).strip() if jobid_mobile else None
     if not jobid_pc:
         jobid_pc = (
-            re.search(r'(?:<:script:[^>]+>|:script:)\s*ID \(PC\)\s*\n(?:```)?([^\n`]+)', msg, re.MULTILINE)
+            re.search(r'(?:<:script:[^>]+>|:script:)\s*ID KATEX_INLINE_OPENPCKATEX_INLINE_CLOSE\s*\n(?:```)?([^\n`]+)', msg, re.MULTILINE)
         )
         jobid_pc = jobid_pc.group(1).strip() if jobid_pc else None
     if not script:
         script = (
             re.search(r'(?:<:script:[^>]+>|:script:)\s*Script\s*\n```lua\n?(.*?)```', msg, re.DOTALL) or
-            re.search(r'Join Script \(PC\)\s*\n(game:GetService\("TeleportService"\):TeleportToPlaceInstance\([^\n]+)', msg, re.MULTILINE)
+            re.search(r'Join Script KATEX_INLINE_OPENPCKATEX_INLINE_CLOSE\s*\n(game:GetServiceKATEX_INLINE_OPEN"TeleportService"KATEX_INLINE_CLOSE:TeleportToPlaceInstanceKATEX_INLINE_OPEN[^\n]+)', msg, re.MULTILINE)
         )
         script = script.group(1).strip() if script else None
 
@@ -120,7 +121,7 @@ def parse_info(msg, embed_fields=None):
     # Placeid: try to extract from script, fallback to constant
     placeid = "109983668079237"
     if script:
-        m = re.search(r'TeleportToPlaceInstance\((\d+),["\']?([A-Za-z0-9\-]+)', script)
+        m = re.search(r'TeleportToPlaceInstanceKATEX_INLINE_OPEN(\d+),["\']?([A-Za-z0-9\-]+)', script)
         if m:
             placeid = m.group(1)
             instanceid = m.group(2)
@@ -212,25 +213,26 @@ end"""
     }
     return {"embeds": [embed]}
 
-def send_to_webhooks(payload):
-    def send_to_webhook(url, payload):
+async def send_to_webhooks(payload):
+    async def send_to_webhook(url, payload):
         try:
-            response = requests.post(url, json=payload, timeout=10)
-            if response.status_code in [200, 204]:
-                print(f"✅ Sent to webhook: {url[:50]}...")
-            else:
-                print(f"❌ Webhook error {response.status_code} for {url[:50]}...")
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=10) as response:
+                    if response.status in [200, 204]:
+                        print(f"✅ Sent to webhook: {url[:50]}...")
+                    else:
+                        print(f"❌ Webhook error {response.status} for {url[:50]}...")
         except Exception as e:
             print(f"❌ Failed to send to webhook {url[:50]}...: {e}")
-    threads = []
+    
+    tasks = []
     for webhook_url in WEBHOOK_URLS:
-        thread = threading.Thread(target=send_to_webhook, args=(webhook_url, payload))
-        thread.start()
-        threads.append(thread)
-    for thread in threads:
-        thread.join()
+        task = asyncio.create_task(send_to_webhook(webhook_url, payload))
+        tasks.append(task)
+    if tasks:
+        await asyncio.gather(*tasks)
 
-def send_to_backend(info):
+async def send_to_backend(info):
     if not info["name"]:
         print("Skipping backend send - missing name")
         return
@@ -243,13 +245,14 @@ def send_to_backend(info):
         "moneyPerSec": info["money"]
     }
     try:
-        response = requests.post(BACKEND_URL, json=payload, timeout=10)
-        if response.status_code == 200:
-            print(f"✅ Sent to backend: {info['name']} -> {payload.get('serverId','(none)')[:8]}... ({info['players']})")
-        elif response.status_code == 429:
-            print(f"⚠️ Rate limited for backend: {info['name']}")
-        else:
-            print(f"❌ Backend error {response.status_code}: {response.text}")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(BACKEND_URL, json=payload, timeout=10) as response:
+                if response.status == 200:
+                    print(f"✅ Sent to backend: {info['name']} -> {payload.get('serverId','(none)')[:8]}... ({info['players']})")
+                elif response.status == 429:
+                    print(f"⚠️ Rate limited for backend: {info['name']}")
+                else:
+                    print(f"❌ Backend error {response.status}: {response.text}")
     except Exception as e:
         print(f"❌ Failed to send to backend: {e}")
 
@@ -267,13 +270,17 @@ async def on_message(message):
     print("Embed fields:", embed_fields)
     info = parse_info(full_content, embed_fields)
     print(f"Debug - Parsed info: name='{info['name']}', money='{info['money']}', players='{info['players']}', instanceid='{info['instanceid']}'")
+    
     if info["name"] and info["money"] and info["players"] and info["instanceid"]:
+        # Send to backend FIRST (higher priority)
+        await send_to_backend(info)
+        
+        # Then send to webhooks
         embed_payload = build_embed(info)
-        send_to_webhooks(embed_payload)
+        await send_to_webhooks(embed_payload)
         print(f"✅ Sent embed to all webhooks for: {info['name']}")
-        send_to_backend(info)
     else:
-        send_to_webhooks({"content": full_content})
+        await send_to_webhooks({"content": full_content})
         print(f"⚠️ Sent plain text to all webhooks (missing fields)")
 
 client.run(TOKEN)
